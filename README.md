@@ -112,8 +112,8 @@ SmartCaliper was evaluated against synthetic 3D scenes rendered with tilted pers
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/goruntu-isleme.git
-cd goruntu-isleme
+git clone https://github.com/SuleymanToklu/smart-caliper.git
+cd smart-caliper
 
 # Create a virtual environment with uv or python
 uv venv --python 3.11 .venv
