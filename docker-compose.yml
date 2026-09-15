@@ -1,0 +1,14 @@
+version: '3.8'
+
+services:
+  smart-caliper:
+    build: .
+    container_name: smart-caliper
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./results:/app/results
+      - ./samples:/app/samples
+    restart: unless-stopped
+    environment:
+      - PYTHONUNBUFFERED=1
