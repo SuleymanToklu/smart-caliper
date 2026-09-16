@@ -3,12 +3,14 @@
 # 📐 SmartCaliper
 ### Sub-pixel Computer Vision Metrology & Defect Inspection Engine
 
+[![CI](https://github.com/SuleymanToklu/smart-caliper/actions/workflows/ci.yml/badge.svg)](https://github.com/SuleymanToklu/smart-caliper/actions/workflows/ci.yml)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%20%7C%203.11%20%7C%203.12-blue.svg?style=flat-square&logo=python)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688.svg?style=flat-square&logo=fastapi)](https://fastapi.tiangolo.com)
 [![OpenCV](https://img.shields.io/badge/OpenCV-5.0%2F4.8+-5C3EE8.svg?style=flat-square&logo=opencv)](https://opencv.org/)
 [![Tests](https://img.shields.io/badge/tests-21%20passed-success.svg?style=flat-square&logo=pytest)](https://docs.pytest.org/)
 [![Precision](https://img.shields.io/badge/accuracy-%3C0.15mm%20sub--pixel-brightgreen.svg?style=flat-square)](https://github.com/)
 [![Docker](https://img.shields.io/badge/docker-ready-2496ED.svg?style=flat-square&logo=docker)](https://www.docker.com/)
+[![Hugging Face Spaces](https://img.shields.io/badge/%F0%9F%A4%97%20Hugging%20Face-Spaces%20Ready-FFD21E.svg?style=flat-square)](https://huggingface.co/spaces)
 [![License: MIT](https://img.shields.io/badge/license-MIT-purple.svg?style=flat-square)](LICENSE)
 
 <p align="center">
@@ -142,6 +144,19 @@ smart-caliper serve --host 0.0.0.0 --port 8000
 docker compose up --build
 ```
 Then visit `http://localhost:8000`.
+
+### 4. Deploy Live to Hugging Face Spaces (Free Cloud Hosting)
+
+SmartCaliper is pre-configured with rootless Docker compatibility (`UID 1000`) and dynamic `$PORT` handling for instant one-click deployment to **Hugging Face Spaces**, **Google Cloud Run**, or **Render**:
+
+1. Create a new Space on [Hugging Face Spaces](https://huggingface.co/new-space).
+2. Set Space SDK to **Docker** (Blank).
+3. Connect your GitHub repository (`SuleymanToklu/smart-caliper`) or push directly via Git:
+   ```bash
+   git remote add space https://huggingface.co/spaces/YOUR_USERNAME/smart-caliper
+   git push space main
+   ```
+4. Hugging Face Spaces will automatically build the container and serve the live web CAD interface!
 
 ---
 

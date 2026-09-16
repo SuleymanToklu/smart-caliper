@@ -22,14 +22,22 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
     && rm -rf /var/lib/apt/lists/*
+# Create non-root user (UID 1000 for Hugging Face Spaces / Rootless container standard)
+RUN useradd -m -u 1000 appuser && \
+    mkdir -p /app/results /app/samples && \
+    chown -R appuser:appuser /app
 
 COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
 COPY --from=builder /usr/local/bin /usr/local/bin
-COPY smart_caliper/ smart_caliper/
-COPY samples/ samples/
+COPY --chown=appuser:appuser smart_caliper/ smart_caliper/
+COPY --chown=appuser:appuser samples/ samples/
 
-EXPOSE 8000
+USER appuser
 
-ENV PYTHONUNBUFFERED=1
+ENV PYTHONUNBUFFERED=1 \
+    PORT=8000
 
-CMD ["uvicorn", "smart_caliper.api.app:app", "--host", "0.0.0.0", "--port", "8000"]
+# Support both standard local port (8000) and Hugging Face Spaces default (7860)
+EXPOSE 8000 7860
+
+CMD ["sh", "-c", "uvicorn smart_caliper.api.app:app --host 0.0.0.0 --port ${PORT:-8000}"]
