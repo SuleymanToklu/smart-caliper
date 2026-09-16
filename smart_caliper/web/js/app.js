@@ -1,5 +1,5 @@
 /**
- * SmartCaliper — Client-side CAD Canvas, Metrology Engine & Live Camera
+ * Mezuram — Minimalist Camera Measurement Engine (iOS Measure Style)
  */
 
 (function () {
@@ -7,106 +7,93 @@
 
   // --- State ---
   const state = {
-    mode: 'auto', // 'auto', 'pin', 'caliper', 'circle'
-    viewMode: 'cad', // 'cad', 'orig'
+    mode: 'measure', // 'measure', 'pin'
     currentSample: null,
     currentFile: null,
     analysisData: null,
-    
-    // Images
-    cadImage: null,
-    origImage: null,
-    rectifiedImage: null,
-    
-    // Calibration pins (in original image coordinates)
+
+    // Base calibrated image
+    image: null,
+    imageWidth: 0,
+    imageHeight: 0,
+
+    // Metric scale
+    ppm: 10.0, // pixels per mm
+
+    // Reference Corners (in image coordinates)
     pinCorners: null, // [ {x, y}, {x, y}, {x, y}, {x, y} ]
     detectedCorners: null,
     activePinIndex: -1,
 
-    // Metrics
-    ppm: 10.0,
+    // Completed measurements: [ { p1: {x, y}, p2: {x, y}, distance_mm: 48.5 } ]
+    measurements: [],
+    activePoint1: null, // current pending start point {x, y}
+    cursorPoint: null,  // current cursor/touch position {x, y}
+
+    // Canvas view transform
     zoom: 1.0,
     panX: 0,
     panY: 0,
     isPanning: false,
     startPanX: 0,
     startPanY: 0,
-    
-    // Measurement tools
-    caliperPoints: [], // [ {x, y}, {x, y} ]
-    circlePoints: [],  // [ {x, y}, {x, y}, {x, y} ]
 
-    // Live Camera
+    // Camera
     cameraStream: null,
-    facingMode: 'environment', // 'environment' (back) or 'user' (front/webcam)
+    facingMode: 'environment',
   };
 
   // --- DOM Elements ---
   const canvas = document.getElementById('cadCanvas');
   const ctx = canvas.getContext('2d');
-  const canvasWrapper = document.getElementById('canvasWrapper');
+  const viewport = document.getElementById('viewport');
   const dropzone = document.getElementById('dropzone');
-  
-  // Camera Elements
+  const statusBanner = document.getElementById('statusBanner');
+  const statusText = document.getElementById('statusText');
+
+  // Camera
   const webcamVideo = document.getElementById('webcamVideo');
-  const cameraHud = document.getElementById('cameraHud');
+  const cameraOverlay = document.getElementById('cameraOverlay');
+  const shutterBar = document.getElementById('shutterBar');
+  const btnShutter = document.getElementById('btnShutter');
   const btnToggleCamera = document.getElementById('btnToggleCamera');
   const btnCamText = document.getElementById('btnCamText');
-  const btnFlipCam = document.getElementById('btnFlipCam');
-  const btnCloseCam = document.getElementById('btnCloseCam');
-  const btnShutter = document.getElementById('btnShutter');
   const btnEmptyStartCam = document.getElementById('btnEmptyStartCam');
   const btnEmptyUpload = document.getElementById('btnEmptyUpload');
 
-  // File Upload Elements
+  // Upload
   const btnUploadTrigger = document.getElementById('btnUploadTrigger');
   const fileUpload = document.getElementById('fileInputUpload');
 
-  // UI Panels
-  const caliperHud = document.getElementById('caliperHud');
-  const hudValue = document.getElementById('hudValue');
-  const hudSub = document.getElementById('hudSub');
-  const loadingOverlay = document.getElementById('loadingOverlay');
-  const loadingText = document.getElementById('loadingText');
+  // Toolbar
+  const btnMeasureMode = document.getElementById('btnMeasureMode');
+  const btnPinMode = document.getElementById('btnPinMode');
+  const btnClearMeasurements = document.getElementById('btnClearMeasurements');
+
+  // Pin Adjustment Bar
+  const pinAdjustBar = document.getElementById('pinAdjustBar');
+  const btnApplyPins = document.getElementById('btnApplyPins');
+  const btnResetPins = document.getElementById('btnResetPins');
+  const btnCancelPins = document.getElementById('btnCancelPins');
+
+  // Reference Standard Select
+  const selectRef = document.getElementById('selectReference');
+
+  // Magnifier Loupe
   const magnifierLens = document.getElementById('magnifierLens');
   const lensCanvas = document.getElementById('lensCanvas');
   const lensCtx = lensCanvas.getContext('2d');
-  const pinBanner = document.getElementById('pinBanner');
-  const btnApplyPins = document.getElementById('btnApplyPins');
-  const btnResetPins = document.getElementById('btnResetPins');
 
-  // Metrology Controls
-  const selectRef = document.getElementById('selectReference');
-  const customDimsRow = document.getElementById('customDimsRow');
-  const customWidth = document.getElementById('customWidth');
-  const customHeight = document.getElementById('customHeight');
-  const nomLength = document.getElementById('nomLength');
-  const tolLength = document.getElementById('tolLength');
-  const nomWidth = document.getElementById('nomWidth');
-  const tolWidth = document.getElementById('tolWidth');
-  const btnReanalyze = document.getElementById('btnReanalyze');
+  // Loading
+  const loadingOverlay = document.getElementById('loadingOverlay');
+  const loadingText = document.getElementById('loadingText');
 
-  // Stats & Header Controls
-  const statScale = document.getElementById('statScale');
-  const statResolution = document.getElementById('statResolution');
-  const statConfidence = document.getElementById('statConfidence');
-  const statMode = document.getElementById('currentModeLabel');
-  const objCount = document.getElementById('objCount');
-  const resultsList = document.getElementById('resultsList');
-  const qaBadge = document.getElementById('qaBadge');
-
-  const btnZoomIn = document.getElementById('btnZoomIn');
-  const btnZoomOut = document.getElementById('btnZoomOut');
-  const btnZoomFit = document.getElementById('btnZoomFit');
-  const btnToggleCad = document.getElementById('btnToggleCad');
-  const btnDownloadCad = document.getElementById('btnDownloadCad');
-  const btnExportJson = document.getElementById('btnExportJson');
-
-  // --- Initialization ---
+  // --- Initialize ---
   function init() {
-    setupEventListeners();
     setupCanvas();
-    // Pre-load default sample on launch
+    setupEventListeners();
+
+    // Auto-load default sample after 300ms for instant demo
     setTimeout(() => {
       loadSample('sample_card_inspection.png', 'iso_card');
     }, 300);
@@ -121,38 +108,13 @@
   }
 
   function resizeCanvas() {
-    canvas.width = canvasWrapper.clientWidth;
-    canvas.height = canvasWrapper.clientHeight;
+    canvas.width = viewport.clientWidth;
+    canvas.height = viewport.clientHeight;
   }
 
   // --- Event Listeners ---
   function setupEventListeners() {
-    // Mode switcher (Auto, Pin, Caliper, Circle)
-    document.querySelectorAll('#modePills .pill-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        document.querySelectorAll('#modePills .pill-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        state.mode = btn.dataset.mode;
-        state.caliperPoints = [];
-        state.circlePoints = [];
-        statMode.textContent = btn.textContent.trim();
-        caliperHud.style.display = 'none';
-
-        if (state.mode === 'pin') {
-          // Force original photo view when aligning pins
-          state.viewMode = 'orig';
-          btnToggleCad.textContent = '🖼️ Original Photo';
-          btnToggleCad.classList.remove('active');
-          pinBanner.style.display = 'flex';
-        } else {
-          pinBanner.style.display = 'none';
-        }
-
-        render();
-      });
-    });
-
-    // Camera buttons
+    // Camera toggle
     btnToggleCamera.addEventListener('click', () => {
       if (state.cameraStream) {
         stopCamera();
@@ -166,32 +128,33 @@
     btnUploadTrigger.addEventListener('click', () => fileUpload.click());
     fileUpload.addEventListener('change', e => handleFileSelect(e.target.files[0]));
 
-    btnFlipCam.addEventListener('click', flipCamera);
-    btnCloseCam.addEventListener('click', stopCamera);
     btnShutter.addEventListener('click', snapCameraFrame);
 
-    // Pin Alignment Actions
+    // Measure Mode toggle
+    btnMeasureMode.addEventListener('click', () => {
+      setMode('measure');
+    });
+
+    // Pin Alignment toggle
+    btnPinMode.addEventListener('click', () => {
+      setMode('pin');
+    });
+
+    // Clear measurements
+    btnClearMeasurements.addEventListener('click', () => {
+      state.measurements = [];
+      state.activePoint1 = null;
+      render();
+      setStatus('✓ Ölçümler temizlendi. İki noktaya dokunarak yeni ölçüm yapın.');
+    });
+
+    // Pin Action Bar buttons
     btnApplyPins.addEventListener('click', applyPinCalibration);
     btnResetPins.addEventListener('click', resetPinsToDetected);
+    btnCancelPins.addEventListener('click', () => setMode('measure'));
 
-    // Sample buttons
-    document.querySelectorAll('.btn-sample').forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (state.cameraStream) stopCamera();
-        const sample = btn.dataset.sample;
-        const ref = btn.dataset.ref;
-        selectRef.value = ref;
-        loadSample(sample, ref);
-      });
-    });
-
-    // Reference Select
+    // Reference Standard Change
     selectRef.addEventListener('change', () => {
-      customDimsRow.style.display = selectRef.value === 'custom_rect' ? 'flex' : 'none';
-    });
-
-    // Reanalyze
-    btnReanalyze.addEventListener('click', () => {
       if (state.currentSample) {
         loadSample(state.currentSample, selectRef.value, state.pinCorners);
       } else if (state.currentFile) {
@@ -199,52 +162,80 @@
       }
     });
 
-    // Zoom Controls
-    btnZoomIn.addEventListener('click', () => zoomBy(1.2));
-    btnZoomOut.addEventListener('click', () => zoomBy(0.8));
-    btnZoomFit.addEventListener('click', fitToScreen);
+    // 1-Click Samples
+    document.querySelectorAll('.btn-sample-mini').forEach(btn => {
+      btn.addEventListener('click', () => {
+        if (state.cameraStream) stopCamera();
+        const sample = btn.dataset.sample;
+        const ref = btn.dataset.ref;
+        selectRef.value = ref;
+        loadSample(sample, ref);
+      });
+    // Drag & Drop
+    ['dragenter', 'dragover'].forEach(name => {
+      window.addEventListener(name, e => {
+        e.preventDefault();
+        e.stopPropagation();
+      });
+    });
+    window.addEventListener('drop', e => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        handleFileSelect(e.dataTransfer.files[0]);
+      }
+    });
 
-    // Toggle CAD vs Original View
-    btnToggleCad.addEventListener('click', () => {
-      if (state.viewMode === 'cad') {
-        state.viewMode = 'orig';
-        btnToggleCad.textContent = '🖼️ Original Photo';
-        btnToggleCad.classList.remove('active');
-      } else {
-        state.viewMode = 'cad';
-        btnToggleCad.textContent = '📐 CAD Blueprint';
-        btnToggleCad.classList.add('active');
-        if (state.mode === 'pin') {
-          // Switch back to auto mode if user leaves orig view
-          setMode('auto');
+    // Keyboard Shortcuts
+    window.addEventListener('keydown', e => {
+      if (e.key === 'Escape') {
+        if (state.activePoint1) {
+          state.activePoint1 = null;
+          state.cursorPoint = null;
+          render();
+          setStatus('Nokta seçimi iptal edildi.');
+        } else if (state.mode === 'pin') {
+          setMode('measure');
+        }
+      } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (state.measurements.length > 0) {
+          state.measurements.pop();
+          render();
+          setStatus('Son ölçüm geri alındı.');
         }
       }
-      fitToScreen();
-      render();
     });
 
-    // Exports
-    btnDownloadCad.addEventListener('click', downloadCadImage);
-    btnExportJson.addEventListener('click', exportJsonData);
-
-    // Mouse & Touch Interactions
-    setupCanvasInteractions();
+    // Mouse & Touch Interaction
+    setupInteractions();
   }
 
-  function setMode(modeName) {
-    document.querySelectorAll('#modePills .pill-btn').forEach(b => {
-      b.classList.toggle('active', b.dataset.mode === modeName);
-    });
-    state.mode = modeName;
-    statMode.textContent = modeName.toUpperCase();
-    pinBanner.style.display = modeName === 'pin' ? 'flex' : 'none';
+  function setMode(newMode) {
+    state.mode = newMode;
+    state.activePoint1 = null;
+
+    btnMeasureMode.classList.toggle('active', newMode === 'measure');
+    btnPinMode.classList.toggle('active', newMode === 'pin');
+
+    if (newMode === 'pin') {
+      pinAdjustBar.style.display = 'flex';
+      setStatus('📍 Kartın 4 köşesini parmağınızla kartın uçlarına sürükleyin.');
+    } else {
+      pinAdjustBar.style.display = 'none';
+      setStatus('📏 Ölçmek istediğiniz nesnenin iki ucuna dokunun.');
+    }
     render();
   }
 
-  // --- Live Camera Controller ---
+  function setStatus(text) {
+    statusText.textContent = text;
+  }
+
+  // --- Camera Controller ---
   async function startCamera() {
     try {
-      showLoading('Accessing camera...');
+      showLoading('Kamera başlatılıyor...');
       const constraints = {
         video: {
           facingMode: state.facingMode,
@@ -262,12 +253,15 @@
       dropzone.style.display = 'none';
       canvas.style.display = 'none';
       webcamVideo.style.display = 'block';
-      cameraHud.style.display = 'flex';
-      btnCamText.textContent = 'Stop Camera';
-      btnToggleCamera.classList.add('btn-danger');
+      cameraOverlay.style.display = 'flex';
+      shutterBar.style.display = 'flex';
+
+      btnCamText.textContent = 'Durdur';
+      btnToggleCamera.classList.add('danger');
+      setStatus('📷 Kartı çerçeveye hizalayın ve Yakala butonuna basın.');
     } catch (err) {
-      console.error('Camera access error:', err);
-      alert('Camera access denied or unavailable: ' + err.message + '\nEnsure you are using HTTPS or localhost.');
+      console.error('Camera error:', err);
+      alert('Kamera açılamadı: ' + err.message + '\nLütfen tarayıcıda kamera izni verdiğinizden emin olun.');
     } finally {
       hideLoading();
     }
@@ -275,36 +269,28 @@
 
   function stopCamera() {
     if (state.cameraStream) {
-      state.cameraStream.getTracks().forEach(track => track.stop());
+      state.cameraStream.getTracks().forEach(t => t.stop());
       state.cameraStream = null;
     }
     webcamVideo.srcObject = null;
     webcamVideo.style.display = 'none';
-    cameraHud.style.display = 'none';
+    cameraOverlay.style.display = 'none';
+    shutterBar.style.display = 'none';
     canvas.style.display = 'block';
-    btnCamText.textContent = 'Live Camera';
-    btnToggleCamera.classList.remove('btn-danger');
 
-    if (!state.cadImage && !state.origImage) {
+    btnCamText.textContent = 'Kamera';
+    btnToggleCamera.classList.remove('danger');
+
+    if (!state.image) {
       dropzone.style.display = 'flex';
     } else {
       render();
     }
   }
 
-  async function flipCamera() {
-    state.facingMode = state.facingMode === 'environment' ? 'user' : 'environment';
-    if (state.cameraStream) {
-      state.cameraStream.getTracks().forEach(track => track.stop());
-      state.cameraStream = null;
-    }
-    await startCamera();
-  }
-
   function snapCameraFrame() {
     if (!webcamVideo.videoWidth) return;
 
-    // Capture current video frame on an offscreen canvas
     const snapCanvas = document.createElement('canvas');
     snapCanvas.width = webcamVideo.videoWidth;
     snapCanvas.height = webcamVideo.videoHeight;
@@ -318,11 +304,11 @@
     }, 'image/jpeg', 0.95);
   }
 
-  // --- API Requests ---
+  // --- API & Image Upload ---
   async function loadSample(sampleName, refType, manualCorners = null) {
     state.currentSample = sampleName;
     state.currentFile = null;
-    showLoading(`Analyzing ${sampleName}...`);
+    showLoading(`${sampleName} yükleniyor...`);
 
     const formData = new FormData();
     formData.append('sample_name', sampleName);
@@ -330,16 +316,15 @@
     if (manualCorners) {
       formData.append('manual_corners_json', JSON.stringify(manualCorners));
     }
-    appendToleranceToForm(formData);
 
     try {
       const resp = await fetch('/api/analyze', { method: 'POST', body: formData });
       if (!resp.ok) throw new Error(await resp.text());
       const data = await resp.json();
-      processAnalysisResponse(data);
+      processApiResponse(data);
     } catch (err) {
       console.error(err);
-      alert('Analysis failed: ' + err.message);
+      alert('Yükleme başarısız: ' + err.message);
     } finally {
       hideLoading();
     }
@@ -349,28 +334,23 @@
     if (!fileOrBlob) return;
     state.currentFile = fileOrBlob;
     state.currentSample = null;
-    showLoading('Processing with sub-pixel CV...');
+    showLoading('Fotoğraf kalibre ediliyor...');
 
     const formData = new FormData();
-    formData.append('file', fileOrBlob, 'capture.jpg');
+    formData.append('file', fileOrBlob, 'measure_snap.jpg');
     formData.append('ref_type', selectRef.value);
-    if (selectRef.value === 'custom_rect') {
-      formData.append('custom_width_mm', customWidth.value);
-      formData.append('custom_height_mm', customHeight.value);
-    }
     if (manualCorners) {
       formData.append('manual_corners_json', JSON.stringify(manualCorners));
     }
-    appendToleranceToForm(formData);
 
     try {
       const resp = await fetch('/api/analyze', { method: 'POST', body: formData });
       if (!resp.ok) throw new Error(await resp.text());
       const data = await resp.json();
-      processAnalysisResponse(data);
+      processApiResponse(data);
     } catch (err) {
       console.error(err);
-      alert('Inspection failed: ' + err.message);
+      alert('Analiz hatası: ' + err.message);
     } finally {
       hideLoading();
     }
@@ -382,58 +362,38 @@
     uploadFile(file);
   }
 
-  function appendToleranceToForm(formData) {
-    if (nomLength.value) formData.append('nominal_length', nomLength.value);
-    if (tolLength.value) formData.append('tol_length', tolLength.value);
-    if (nomWidth.value) formData.append('nominal_width', nomWidth.value);
-    if (tolWidth.value) formData.append('tol_width', tolWidth.value);
-  }
-
-  function processAnalysisResponse(data) {
+  function processApiResponse(data) {
     state.analysisData = data;
-    state.ppm = data.calibration.pixels_per_mm;
+    state.ppm = data.calibration.pixels_per_mm || 10.0;
 
-    // Store corners
+    // Detected Reference Corners
     if (data.reference_detected_corners_original) {
       state.detectedCorners = JSON.parse(JSON.stringify(data.reference_detected_corners_original));
-      state.pinCorners = JSON.parse(JSON.stringify(data.reference_detected_corners_original));
+      if (!state.pinCorners) {
+        state.pinCorners = JSON.parse(JSON.stringify(data.reference_detected_corners_original));
+      }
     }
 
-    // Load Images
-    let loadedCount = 0;
-    const checkAllLoaded = () => {
-      loadedCount++;
-      if (loadedCount >= 2) {
-        dropzone.style.display = 'none';
-        canvas.style.display = 'block';
-        fitToScreen();
-        render();
+    // Load Image: prefer original_png_b64 for natural, non-warped viewing!
+    const img = new Image();
+    img.src = data.images.original_png_b64 || data.images.rectified_png_b64;
+    img.onload = () => {
+      state.image = img;
+      state.imageWidth = img.width;
+      state.imageHeight = img.height;
+
+      dropzone.style.display = 'none';
+      canvas.style.display = 'block';
+      fitToScreen();
+      render();
+
+      const conf = Math.round(data.calibration.confidence * 100);
+      if (conf > 50) {
+        setStatus(`✓ Referans Algılandı (%${conf} Doğruluk). Ölçmek istediğiniz 2 noktaya dokunun.`);
+      } else {
+        setStatus(`ℹ️ Referans otomatik bulunamadı. "Kartı Hizala" butonuna basarak 4 köşeyi ayarlayabilirsiniz.`);
       }
     };
-
-    const imgCad = new Image();
-    imgCad.src = data.images.cad_annotated_png_b64;
-    imgCad.onload = () => {
-      state.cadImage = imgCad;
-      checkAllLoaded();
-    };
-
-    const imgOrig = new Image();
-    imgOrig.src = data.images.original_png_b64 || data.images.rectified_png_b64;
-    imgOrig.onload = () => {
-      state.origImage = imgOrig;
-      state.rawImage = imgOrig;
-      checkAllLoaded();
-    };
-
-    // Update Stats Footer
-    statScale.innerHTML = `Scale: <strong>${data.calibration.pixels_per_mm.toFixed(2)} px/mm</strong>`;
-    statResolution.innerHTML = `Resolution: <strong>${(data.calibration.resolution_mm_per_pixel * 1000).toFixed(1)} µm/px</strong>`;
-    statConfidence.innerHTML = `Confidence: <strong>${(data.calibration.confidence * 100).toFixed(0)}%</strong>`;
-
-    // Update Object Count & Results
-    objCount.textContent = data.objects_count;
-    renderResultsList(data.measurements);
   }
 
   function applyPinCalibration() {
@@ -443,6 +403,7 @@
     } else if (state.currentFile) {
       uploadFile(state.currentFile, state.pinCorners);
     }
+    setMode('measure');
   }
 
   function resetPinsToDetected() {
@@ -452,263 +413,187 @@
     }
   }
 
-  function renderResultsList(measurements) {
-    resultsList.innerHTML = '';
-    if (!measurements || measurements.length === 0) {
-      resultsList.innerHTML = '<div class="empty-hint">No parts detected. Tap Caliper to measure point-to-point!</div>';
-      qaBadge.style.display = 'none';
-      return;
-    }
-
-    let hasPass = false;
-    let hasFail = false;
-
-    measurements.forEach(m => {
-      const item = document.createElement('div');
-      item.className = 'result-item';
-
-      let qaHtml = '';
-      if (m.qa_inspection) {
-        if (m.qa_inspection.passed) {
-          qaHtml = `<span class="badge-qa pass">PASS</span>`;
-          hasPass = true;
-        } else {
-          qaHtml = `<span class="badge-qa fail">FAIL</span>`;
-          hasFail = true;
-        }
-      }
-
-      const dim = m.dimensions_mm;
-      const circ = m.circle_metrics;
-
-      item.innerHTML = `
-        <div class="result-top">
-          <span class="part-id">PART #${m.id}</span>
-          ${qaHtml}
-        </div>
-        <div class="dim-row">
-          <span class="dim-label">Length × Width:</span>
-          <span class="dim-val">${dim.length.toFixed(2)} × ${dim.width.toFixed(2)} mm</span>
-        </div>
-        ${circ.is_circular ? `
-        <div class="dim-row">
-          <span class="dim-label">Diameter (Ø):</span>
-          <span class="dim-val" style="color:var(--accent-cyan);">Ø ${circ.diameter_mm.toFixed(2)} mm</span>
-        </div>` : ''}
-        <div class="dim-row">
-          <span class="dim-label">Surface Area:</span>
-          <span class="dim-val">${m.area_mm2.toFixed(1)} mm²</span>
-        </div>
-      `;
-      resultsList.appendChild(item);
-    });
-
-    if (hasFail) {
-      qaBadge.style.display = 'block';
-      qaBadge.className = 'qa-badge fail';
-      qaBadge.textContent = 'QA: REJECTED';
-    } else if (hasPass) {
-      qaBadge.style.display = 'block';
-      qaBadge.className = 'qa-badge pass';
-      qaBadge.textContent = 'QA: ACCEPTED';
-    } else {
-      qaBadge.style.display = 'none';
-    }
-  }
-
-  // --- Canvas Rendering ---
-  function getActiveImage() {
-    if (state.viewMode === 'orig') {
-      return state.origImage || state.cadImage;
-    }
-    return state.cadImage || state.origImage;
-  }
-
+  // --- Canvas Rendering (Apple Measure Style) ---
   function render() {
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    const activeImg = getActiveImage();
-    if (!activeImg) return;
+    if (!state.image) return;
 
     ctx.save();
     ctx.translate(state.panX, state.panY);
     ctx.scale(state.zoom, state.zoom);
 
-    // Draw active image (CAD Blueprint or Original Photo)
-    ctx.drawImage(activeImg, 0, 0);
+    // 1. Draw Clean Natural Image
+    ctx.drawImage(state.image, 0, 0);
 
-    // If in original photo view, draw the reference corners outline
-    if (state.viewMode === 'orig' && state.pinCorners && state.pinCorners.length === 4) {
-      renderReferenceCorners();
-    }
+    // 2. Draw Reference Target Outline (Card / Coin)
+    renderReferenceOutline();
 
-    // Draw active caliper tool overlay
-    if (state.mode === 'caliper') {
-      renderCaliperTool();
-    } else if (state.mode === 'circle') {
-      renderCircleTool();
+    // 3. Draw Completed Measurements
+    state.measurements.forEach(m => {
+      drawMeasureLine(m.p1, m.p2, m.distance_mm, false);
+    });
+
+    // 4. Draw Active Rubberband Line (While dragging/placing 2nd point)
+    if (state.activePoint1 && state.cursorPoint && state.mode === 'measure') {
+      const dx = state.cursorPoint.x - state.activePoint1.x;
+      const dy = state.cursorPoint.y - state.activePoint1.y;
+      const distPx = Math.hypot(dx, dy);
+      const liveMm = distPx / state.ppm;
+      drawMeasureLine(state.activePoint1, state.cursorPoint, liveMm, true);
     }
 
     ctx.restore();
   }
 
-  function renderReferenceCorners() {
+  function renderReferenceOutline() {
+    if (!state.pinCorners || state.pinCorners.length !== 4) return;
     const pts = state.pinCorners;
     const labels = ['TL', 'TR', 'BR', 'BL'];
 
-    // Draw bounding polygon connecting 4 corners
+    // Draw reference box outline
     ctx.beginPath();
     ctx.moveTo(pts[0].x, pts[0].y);
     for (let i = 1; i < pts.length; i++) {
       ctx.lineTo(pts[i].x, pts[i].y);
     }
     ctx.closePath();
-    ctx.strokeStyle = state.mode === 'pin' ? '#00f0ff' : 'rgba(0, 240, 255, 0.4)';
-    ctx.lineWidth = 2.5 / state.zoom;
-    ctx.setLineDash(state.mode === 'pin' ? [] : [6 / state.zoom, 4 / state.zoom]);
-    ctx.stroke();
-    ctx.setLineDash([]);
 
-    // Fill polygon lightly
-    ctx.fillStyle = 'rgba(0, 240, 255, 0.08)';
-    ctx.fill();
-
-    // If in pin mode, draw interactive drag handles
     if (state.mode === 'pin') {
+      ctx.strokeStyle = '#00f0ff';
+      ctx.lineWidth = 3 / state.zoom;
+      ctx.fillStyle = 'rgba(0, 240, 255, 0.12)';
+      ctx.fill();
+      ctx.stroke();
+
+      // Draw 4 Draggable Pin Handles
       pts.forEach((p, idx) => {
         const isHovered = state.activePinIndex === idx;
         drawPinHandle(p.x, p.y, isHovered ? '#ff0055' : '#00f0ff', labels[idx]);
       });
+    } else {
+      // Subtle green box showing detected reference
+      ctx.strokeStyle = 'rgba(16, 185, 129, 0.7)';
+      ctx.lineWidth = 2 / state.zoom;
+      ctx.setLineDash([6 / state.zoom, 4 / state.zoom]);
+      ctx.stroke();
+      ctx.setLineDash([]);
     }
   }
 
   function drawPinHandle(x, y, color, label) {
-    const r = 8 / state.zoom;
+    const r = 9 / state.zoom;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fillStyle = color;
     ctx.fill();
     ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 2 / state.zoom;
+    ctx.lineWidth = 2.5 / state.zoom;
     ctx.stroke();
 
-    // Label tag
     ctx.font = `bold ${13 / state.zoom}px JetBrains Mono`;
     ctx.fillStyle = '#ffffff';
     ctx.fillText(label, x + 12 / state.zoom, y - 8 / state.zoom);
   }
 
-  function renderCaliperTool() {
-    const pts = state.caliperPoints;
-    if (pts.length === 0) return;
+  function drawMeasureLine(p1, p2, distMm, isLive) {
+    // 1. Endpoints Dots
+    drawMeasureDot(p1.x, p1.y, isLive);
+    drawMeasureDot(p2.x, p2.y, isLive);
 
-    drawPointHandle(pts[0].x, pts[0].y, '#f59e0b', 'P1');
+    // 2. Line
+    ctx.beginPath();
+    ctx.moveTo(p1.x, p1.y);
+    ctx.lineTo(p2.x, p2.y);
+    ctx.strokeStyle = isLive ? '#f59e0b' : '#f59e0b';
+    ctx.lineWidth = (isLive ? 3 : 2.5) / state.zoom;
+    if (isLive) {
+      ctx.setLineDash([6 / state.zoom, 4 / state.zoom]);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
 
-    if (pts.length === 2) {
-      const p1 = pts[0];
-      const p2 = pts[1];
+    // 3. Ticks at endpoints (Caliper Jaws)
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    const len = Math.hypot(dx, dy);
+    if (len > 0) {
+      const nx = -dy / len;
+      const ny = dx / len;
+      const jaw = 12 / state.zoom;
 
-      drawPointHandle(p2.x, p2.y, '#f59e0b', 'P2');
-
-      // Caliper measurement line
       ctx.beginPath();
-      ctx.moveTo(p1.x, p1.y);
-      ctx.lineTo(p2.x, p2.y);
+      ctx.moveTo(p1.x - nx * jaw, p1.y - ny * jaw);
+      ctx.lineTo(p1.x + nx * jaw, p1.y + ny * jaw);
+      ctx.moveTo(p2.x - nx * jaw, p2.y - ny * jaw);
+      ctx.lineTo(p2.x + nx * jaw, p2.y + ny * jaw);
       ctx.strokeStyle = '#f59e0b';
       ctx.lineWidth = 2.5 / state.zoom;
-      ctx.setLineDash([5 / state.zoom, 5 / state.zoom]);
       ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Caliper jaws
-      const dx = p2.x - p1.x;
-      const dy = p2.y - p1.y;
-      const len = Math.hypot(dx, dy);
-      if (len > 0) {
-        const nx = -dy / len;
-        const ny = dx / len;
-        const jawLen = 16 / state.zoom;
-
-        // Jaw at p1
-        ctx.beginPath();
-        ctx.moveTo(p1.x - nx * jawLen, p1.y - ny * jawLen);
-        ctx.lineTo(p1.x + nx * jawLen, p1.y + ny * jawLen);
-        // Jaw at p2
-        ctx.moveTo(p2.x - nx * jawLen, p2.y - ny * jawLen);
-        ctx.lineTo(p2.x + nx * jawLen, p2.y + ny * jawLen);
-        ctx.strokeStyle = '#f59e0b';
-        ctx.lineWidth = 3 / state.zoom;
-        ctx.stroke();
-      }
     }
+
+    // 4. Centered Measurement Label Pill (iPhone Measure Style)
+    const midX = (p1.x + p2.x) / 2;
+    const midY = (p1.y + p2.y) / 2;
+    drawMeasurementBadge(midX, midY, distMm);
   }
 
-  function renderCircleTool() {
-    const pts = state.circlePoints;
-    pts.forEach((p, idx) => {
-      drawPointHandle(p.x, p.y, '#00f0ff', `#${idx + 1}`);
-    });
-
-    if (pts.length === 3) {
-      const circle = getThreePointCircle(pts[0], pts[1], pts[2]);
-      if (circle) {
-        ctx.beginPath();
-        ctx.arc(circle.x, circle.y, circle.r, 0, Math.PI * 2);
-        ctx.strokeStyle = '#00f0ff';
-        ctx.lineWidth = 2.5 / state.zoom;
-        ctx.stroke();
-
-        const cs = 10 / state.zoom;
-        ctx.beginPath();
-        ctx.moveTo(circle.x - cs, circle.y);
-        ctx.lineTo(circle.x + cs, circle.y);
-        ctx.moveTo(circle.x, circle.y - cs);
-        ctx.lineTo(circle.x, circle.y + cs);
-        ctx.strokeStyle = '#00f0ff';
-        ctx.lineWidth = 2 / state.zoom;
-        ctx.stroke();
-      }
-    }
-  }
-
-  function drawPointHandle(x, y, color, label) {
-    const r = 6 / state.zoom;
+  function drawMeasureDot(x, y, isLive) {
+    const r = (isLive ? 6 : 5) / state.zoom;
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fillStyle = color;
+    ctx.fillStyle = '#ffffff';
     ctx.fill();
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth = 2 / state.zoom;
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 3 / state.zoom;
+    ctx.stroke();
+  }
+
+  function drawMeasurementBadge(x, y, mm) {
+    let text = `${mm.toFixed(1)} mm`;
+    if (mm >= 50.0) {
+      text = `${(mm / 10).toFixed(1)} cm`;
+    }
+
+    ctx.font = `bold ${14 / state.zoom}px Outfit, sans-serif`;
+    const metrics = ctx.measureText(text);
+    const padX = 10 / state.zoom;
+    const padY = 5 / state.zoom;
+    const boxW = metrics.width + padX * 2;
+    const boxH = 22 / state.zoom;
+    const radius = 6 / state.zoom;
+
+    const bx = x - boxW / 2;
+    const by = y - boxH / 2;
+
+    // Pill background
+    ctx.beginPath();
+    ctx.roundRect(bx, by, boxW, boxH, radius);
+    ctx.fillStyle = '#0f172a';
+    ctx.fill();
+    ctx.strokeStyle = '#f59e0b';
+    ctx.lineWidth = 1.5 / state.zoom;
     ctx.stroke();
 
-    if (label) {
-      ctx.font = `${12 / state.zoom}px JetBrains Mono`;
-      ctx.fillStyle = '#fff';
-      ctx.fillText(label, x + 8 / state.zoom, y - 6 / state.zoom);
-    }
+    // Text
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, y);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
   }
 
-  function getThreePointCircle(p1, p2, p3) {
-    const d = 2 * (p1.x * (p2.y - p3.y) + p2.x * (p3.y - p1.y) + p3.x * (p1.y - p2.y));
-    if (Math.abs(d) < 1e-6) return null;
-
-    const ux = ((p1.x * p1.x + p1.y * p1.y) * (p2.y - p3.y) + (p2.x * p2.x + p2.y * p2.y) * (p3.y - p1.y) + (p3.x * p3.x + p3.y * p3.y) * (p1.y - p2.y)) / d;
-    const uy = ((p1.x * p1.x + p1.y * p1.y) * (p3.x - p2.x) + (p2.x * p2.x + p2.y * p2.y) * (p1.x - p3.x) + (p3.x * p3.x + p3.y * p3.y) * (p2.x - p1.x)) / d;
-    const r = Math.hypot(p1.x - ux, p1.y - uy);
-    return { x: ux, y: uy, r };
-  }
-
-  // --- Mouse & Touch Handlers ---
-  function setupCanvasInteractions() {
+  // --- Mouse & Touch Interactions ---
+  function setupInteractions() {
     let isDragging = false;
     let dragStartX = 0;
     let dragStartY = 0;
     let hasMoved = false;
 
-    // Pin dragging
     function getHitPinIndex(imgX, imgY) {
       if (!state.pinCorners || state.mode !== 'pin') return -1;
-      const hitRadius = 24 / state.zoom; // comfortable touch target
+      const hitRadius = 26 / state.zoom;
       for (let i = 0; i < state.pinCorners.length; i++) {
         const p = state.pinCorners[i];
         if (Math.hypot(p.x - imgX, p.y - imgY) <= hitRadius) {
@@ -719,8 +604,7 @@
     }
 
     function updateMagnifier(screenX, screenY, imgX, imgY) {
-      const activeImg = getActiveImage();
-      if (!activeImg) return;
+      if (!state.image) return;
 
       magnifierLens.style.display = 'block';
       magnifierLens.style.left = `${screenX}px`;
@@ -734,24 +618,27 @@
       const sy = imgY - cropH / 2;
 
       lensCtx.drawImage(
-        activeImg,
+        state.image,
         sx, sy, cropW, cropH,
         0, 0, lensCanvas.width, lensCanvas.height
       );
     }
 
+    // Mouse Down
     canvas.addEventListener('mousedown', e => {
       const rect = canvas.getBoundingClientRect();
       const screenX = e.clientX - rect.left;
       const screenY = e.clientY - rect.top;
       const imgCoord = screenToImageCoords(screenX, screenY);
 
-      // Check if clicked on a pin in pin mode
-      const pinIdx = getHitPinIndex(imgCoord.x, imgCoord.y);
-      if (pinIdx !== -1) {
-        state.activePinIndex = pinIdx;
-        updateMagnifier(screenX, screenY, imgCoord.x, imgCoord.y);
-        return;
+      // 1. Check Pin mode drag
+      if (state.mode === 'pin') {
+        const pinIdx = getHitPinIndex(imgCoord.x, imgCoord.y);
+        if (pinIdx !== -1) {
+          state.activePinIndex = pinIdx;
+          updateMagnifier(screenX, screenY, imgCoord.x, imgCoord.y);
+          return;
+        }
       }
 
       isDragging = true;
@@ -762,13 +649,14 @@
       state.startPanY = state.panY;
     });
 
+    // Mouse Move
     window.addEventListener('mousemove', e => {
       const rect = canvas.getBoundingClientRect();
       const screenX = e.clientX - rect.left;
       const screenY = e.clientY - rect.top;
       const imgCoord = screenToImageCoords(screenX, screenY);
 
-      // Handle Pin Drag
+      // Pin Dragging
       if (state.activePinIndex !== -1 && state.pinCorners) {
         state.pinCorners[state.activePinIndex] = { x: imgCoord.x, y: imgCoord.y };
         updateMagnifier(screenX, screenY, imgCoord.x, imgCoord.y);
@@ -776,7 +664,14 @@
         return;
       }
 
-      // Handle Canvas Pan
+      // Measuring rubberband preview
+      if (state.activePoint1 && state.mode === 'measure') {
+        state.cursorPoint = imgCoord;
+        updateMagnifier(screenX, screenY, imgCoord.x, imgCoord.y);
+        render();
+      }
+
+      // Canvas Panning
       if (!isDragging) return;
       const dx = e.clientX - dragStartX;
       const dy = e.clientY - dragStartY;
@@ -788,26 +683,29 @@
       }
     });
 
+    // Mouse Up
     window.addEventListener('mouseup', e => {
+      magnifierLens.style.display = 'none';
+
       if (state.activePinIndex !== -1) {
         state.activePinIndex = -1;
-        magnifierLens.style.display = 'none';
         render();
         return;
       }
 
       if (!isDragging) return;
       isDragging = false;
+
       if (!hasMoved) {
         const rect = canvas.getBoundingClientRect();
         const screenX = e.clientX - rect.left;
         const screenY = e.clientY - rect.top;
         const imgCoord = screenToImageCoords(screenX, screenY);
-        handleCanvasClick(imgCoord.x, imgCoord.y);
+        handleCanvasTap(imgCoord.x, imgCoord.y);
       }
     });
 
-    // Mouse wheel zoom
+    // Mouse Wheel Zoom
     canvas.addEventListener('wheel', e => {
       e.preventDefault();
       const rect = canvas.getBoundingClientRect();
@@ -817,7 +715,7 @@
       zoomAt(mouseX, mouseY, factor);
     });
 
-    // Touch Support
+    // Touch Handling (Mobile / Tablet)
     let touchStartDist = 0;
     let touchStartZoom = 1;
 
@@ -829,11 +727,13 @@
         const screenY = t.clientY - rect.top;
         const imgCoord = screenToImageCoords(screenX, screenY);
 
-        const pinIdx = getHitPinIndex(imgCoord.x, imgCoord.y);
-        if (pinIdx !== -1) {
-          state.activePinIndex = pinIdx;
-          updateMagnifier(screenX, screenY, imgCoord.x, imgCoord.y);
-          return;
+        if (state.mode === 'pin') {
+          const pinIdx = getHitPinIndex(imgCoord.x, imgCoord.y);
+          if (pinIdx !== -1) {
+            state.activePinIndex = pinIdx;
+            updateMagnifier(screenX, screenY, imgCoord.x, imgCoord.y);
+            return;
+          }
         }
 
         isDragging = true;
@@ -870,6 +770,12 @@
           return;
         }
 
+        if (state.activePoint1 && state.mode === 'measure') {
+          state.cursorPoint = imgCoord;
+          updateMagnifier(screenX, screenY, imgCoord.x, imgCoord.y);
+          render();
+        }
+
         if (isDragging) {
           const dx = t.clientX - dragStartX;
           const dy = t.clientY - dragStartY;
@@ -893,9 +799,10 @@
     }, { passive: false });
 
     canvas.addEventListener('touchend', e => {
+      magnifierLens.style.display = 'none';
+
       if (state.activePinIndex !== -1) {
         state.activePinIndex = -1;
-        magnifierLens.style.display = 'none';
         render();
         return;
       }
@@ -906,87 +813,49 @@
         const screenX = t.clientX - rect.left;
         const screenY = t.clientY - rect.top;
         const imgCoord = screenToImageCoords(screenX, screenY);
-        handleCanvasClick(imgCoord.x, imgCoord.y);
+        handleCanvasTap(imgCoord.x, imgCoord.y);
       }
       isDragging = false;
     });
   }
 
-  function handleCanvasClick(imgX, imgY) {
-    if (state.mode === 'caliper') {
-      if (state.caliperPoints.length >= 2) {
-        state.caliperPoints = [{ x: imgX, y: imgY }];
-        caliperHud.style.display = 'none';
-      } else {
-        state.caliperPoints.push({ x: imgX, y: imgY });
-        if (state.caliperPoints.length === 2) {
-          computeCaliperDistance();
-        }
-      }
+  // --- Two-Point Measure Logic (Mezuram Core) ---
+  function handleCanvasTap(imgX, imgY) {
+    if (state.mode !== 'measure') return;
+
+    if (!state.activePoint1) {
+      // First point placed!
+      state.activePoint1 = { x: imgX, y: imgY };
+      state.cursorPoint = { x: imgX, y: imgY };
+      setStatus('📍 1. Nokta seçildi. Şimdi 2. noktaya dokunun.');
       render();
-    } else if (state.mode === 'circle') {
-      if (state.circlePoints.length >= 3) {
-        state.circlePoints = [{ x: imgX, y: imgY }];
-        caliperHud.style.display = 'none';
-      } else {
-        state.circlePoints.push({ x: imgX, y: imgY });
-        if (state.circlePoints.length === 3) {
-          computeCircleDiameter();
-        }
-      }
+    } else {
+      // Second point placed! Complete the measurement!
+      const p1 = state.activePoint1;
+      const p2 = { x: imgX, y: imgY };
+      const distPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
+      const distMm = distPx / state.ppm;
+
+      state.measurements.push({
+        p1: p1,
+        p2: p2,
+        distance_mm: distMm,
+      });
+
+      state.activePoint1 = null;
+      state.cursorPoint = null;
+
+      const formatted = distMm >= 50 ? `${(distMm / 10).toFixed(2)} cm` : `${distMm.toFixed(1)} mm`;
+      setStatus(`✓ Ölçüm: ${formatted} — Başka bir şey ölçmek için tekrar dokunun.`);
       render();
     }
   }
 
-  async function computeCaliperDistance() {
-    const p1 = state.caliperPoints[0];
-    const p2 = state.caliperPoints[1];
-
-    try {
-      const resp = await fetch('/api/measure-points', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ p1, p2, ppm: state.ppm }),
-      });
-      const data = await resp.json();
-
-      caliperHud.style.display = 'block';
-      hudValue.textContent = data.distance_mm.toFixed(2);
-      hudSub.textContent = `Distance: ${data.distance_mm.toFixed(2)} mm | Scale: ${state.ppm.toFixed(1)} px/mm | θ: ${data.angle_deg.toFixed(1)}°`;
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  async function computeCircleDiameter() {
-    const [p1, p2, p3] = state.circlePoints;
-    try {
-      const resp = await fetch('/api/circle-points', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ p1, p2, p3, ppm: state.ppm }),
-      });
-      const data = await resp.json();
-
-      caliperHud.style.display = 'block';
-      hudValue.innerHTML = `<span style="font-size:1.2rem;">Ø </span>${data.diameter_mm.toFixed(2)}`;
-      hudSub.textContent = `Radius: ${data.radius_mm.toFixed(2)} mm | Area: ${data.area_mm2.toFixed(1)} mm²`;
-    } catch (e) {
-      console.error(e);
-    }
-  }
-
-  // --- Screen <-> Image Math ---
+  // --- Coordinate & Zoom Math ---
   function screenToImageCoords(screenX, screenY) {
     const x = (screenX - state.panX) / state.zoom;
     const y = (screenY - state.panY) / state.zoom;
     return { x, y };
-  }
-
-  function zoomBy(factor) {
-    const cx = canvas.width / 2;
-    const cy = canvas.height / 2;
-    zoomAt(cx, cy, factor);
   }
 
   function zoomAt(screenX, screenY, factor) {
@@ -998,41 +867,17 @@
   }
 
   function fitToScreen() {
-    const img = getActiveImage();
-    if (!img) return;
-
-    const scaleX = (canvas.width - 40) / img.width;
-    const scaleY = (canvas.height - 40) / img.height;
+    if (!state.image) return;
+    const scaleX = (canvas.width - 40) / state.imageWidth;
+    const scaleY = (canvas.height - 40) / state.imageHeight;
     state.zoom = Math.min(scaleX, scaleY, 1.2);
-    state.panX = (canvas.width - img.width * state.zoom) / 2;
-    state.panY = (canvas.height - img.height * state.zoom) / 2;
+    state.panX = (canvas.width - state.imageWidth * state.zoom) / 2;
+    state.panY = (canvas.height - state.imageHeight * state.zoom) / 2;
     render();
   }
 
-  // --- Download & Exports ---
-  function downloadCadImage() {
-    const activeImg = getActiveImage();
-    if (!activeImg) return;
-    const a = document.createElement('a');
-    a.href = activeImg.src;
-    a.download = state.viewMode === 'cad' ? 'smart_caliper_cad_blueprint.png' : 'smart_caliper_original_photo.png';
-    a.click();
-  }
-
-  function exportJsonData() {
-    if (!state.analysisData) return;
-    const str = JSON.stringify(state.analysisData, null, 2);
-    const blob = new Blob([str], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'smart_caliper_inspection_report.json';
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
   function showLoading(msg) {
-    loadingText.textContent = msg || 'Processing...';
+    loadingText.textContent = msg || 'İşleniyor...';
     loadingOverlay.style.display = 'flex';
   }
 
@@ -1040,6 +885,6 @@
     loadingOverlay.style.display = 'none';
   }
 
-  // Launch on DOM ready
+  // Run on DOM ready
   document.addEventListener('DOMContentLoaded', init);
 })();

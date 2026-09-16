@@ -235,10 +235,13 @@ async def analyze_image(
         "width": int(img.shape[1]),
         "height": int(img.shape[0]),
     }
-    response_data["reference_detected_corners_original"] = [
-        {"x": round(float(pt[0]), 1), "y": round(float(pt[1]), 1)}
-        for pt in result.reference.corners
-    ]
+    if result.reference is not None and getattr(result.reference, "corners", None) is not None:
+        response_data["reference_detected_corners_original"] = [
+            {"x": round(float(pt[0]), 1), "y": round(float(pt[1]), 1)}
+            for pt in result.reference.corners
+        ]
+    else:
+        response_data["reference_detected_corners_original"] = []
     
     return JSONResponse(content=response_data)
 

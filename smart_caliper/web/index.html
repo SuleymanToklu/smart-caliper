@@ -1,260 +1,175 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="tr">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-  <title>SmartCaliper — Sub-pixel Vision Metrology & Defect Engine</title>
-  <meta name="description" content="Sub-millimeter accurate smartphone computer vision metrology, dimensioning, and defect inspection engine.">
+  <title>Mezuram — SmartCaliper ile Milimetrik Ölçüm</title>
+  <meta name="application-name" content="SmartCaliper Mezuram">
+  <meta name="description" content="Kredi kartı veya bozuk para referansı ile kameradan milimetrik nesne ölçümü.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&family=Outfit:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <div class="app-container">
-    <!-- Top Navigation Bar -->
-    <header class="navbar">
+  <div class="app-root">
+    <!-- Top Minimal Floating Header -->
+    <header class="top-nav">
       <div class="brand">
-        <div class="brand-logo">
-          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path>
-            <polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline>
-            <line x1="12" y1="22.08" x2="12" y2="12"></line>
+        <div class="brand-icon">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M2 12h20M2 12l5-5M2 12l5 5M22 12l-5-5M22 12l-5 5"/>
           </svg>
         </div>
-        <div class="brand-text">
-          <h1>SmartCaliper <span class="badge-subpixel">SUB-PIXEL CV</span></h1>
-          <p class="brand-sub">Optical Metrology & QA Engine</p>
-        </div>
+        <span class="brand-title">Mezuram</span>
       </div>
 
-      <!-- Quick Action Toolbars -->
-      <div class="header-actions">
-        <div class="mode-pills" id="modePills">
-          <button class="pill-btn active" data-mode="auto" title="Automated CV Object Inspection">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
-            Auto Metrology
-          </button>
-          <button class="pill-btn" data-mode="pin" title="Drag 4 corners of reference card with magnifier">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-            Pin Alignment
-          </button>
-          <button class="pill-btn" data-mode="caliper" title="Point-to-point Digital Caliper">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h20M2 12l5-5M2 12l5 5M22 12l-5-5M22 12l-5 5"/></svg>
-            Digital Caliper
-          </button>
-          <button class="pill-btn" data-mode="circle" title="3-Point Circle Diameter Fit">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="5.64" y1="5.64" x2="18.36" y2="18.36"/></svg>
-            Circle Ø Fit
-          </button>
-        </div>
+      <!-- Reference Standard Selector -->
+      <div class="ref-pill">
+        <label for="selectReference" class="ref-label">Referans:</label>
+        <select id="selectReference" class="ref-select">
+          <option value="iso_card" selected>💳 Kredi Kartı (85.6 mm)</option>
+          <option value="coin_1_tl">🪙 1 TL Para (Ø 26.1 mm)</option>
+          <option value="coin_1_euro">🪙 1 Euro (Ø 23.2 mm)</option>
+          <option value="aruco_4x4_50mm">🏁 ArUco (50 mm)</option>
+        </select>
+      </div>
 
-        <div class="header-right">
-          <button class="btn btn-primary btn-camera" id="btnToggleCamera">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-            <span id="btnCamText">Live Camera</span>
-          </button>
-          <button class="btn btn-secondary" id="btnUploadTrigger">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            <span>Upload Photo</span>
-          </button>
-          <input type="file" id="fileInputUpload" accept="image/*" style="display:none;">
-        </div>
+      <!-- 1-Click Quick Demo Samples -->
+      <div class="quick-samples">
+        <button class="btn-sample-mini" data-sample="sample_card_inspection.png" data-ref="iso_card" title="Kart ve Parçalar Örneği">
+          💳 Kart Örneği
+        </button>
+        <button class="btn-sample-mini" data-sample="sample_coin_bracket.png" data-ref="coin_1_tl" title="1 TL ve Parça Örneği">
+          🪙 1 TL Örneği
+        </button>
       </div>
     </header>
 
-    <!-- Main Workspace -->
-    <main class="main-layout">
-      <!-- Left CAD Viewport -->
-      <section class="viewport-card">
-        <!-- Viewport Header Controls -->
-        <div class="viewport-toolbar">
-          <div class="sample-presets">
-            <span class="label">1-Click Demos:</span>
-            <button class="btn-sample" data-sample="sample_card_inspection.png" data-ref="iso_card">💳 Card + Bar/Disk</button>
-            <button class="btn-sample" data-sample="sample_coin_bracket.png" data-ref="coin_1_tl">🪙 1 TL Coin + Bracket</button>
-            <button class="btn-sample" data-sample="sample_aruco_components.png" data-ref="aruco_4x4_50mm">🏁 ArUco + IC Chip</button>
-          </div>
+    <!-- Fullscreen Measure Viewport -->
+    <main class="measure-viewport" id="viewport">
+      <canvas id="cadCanvas"></canvas>
+      <video id="webcamVideo" playsinline autoplay muted style="display:none;"></video>
 
-          <div class="zoom-controls">
-            <button class="btn-icon" id="btnZoomIn" title="Zoom In">+</button>
-            <button class="btn-icon" id="btnZoomOut" title="Zoom Out">-</button>
-            <button class="btn-icon" id="btnZoomFit" title="Fit to Screen">⛶</button>
-            <button class="btn-toggle active" id="btnToggleCad" title="Toggle CAD Overlay">CAD Blueprint</button>
-          </div>
+      <!-- Live Camera Viewfinder Overlay -->
+      <div class="camera-overlay" id="cameraOverlay" style="display:none;">
+        <div class="cam-guide-box">
+          <div class="corner-bracket tl"></div>
+          <div class="corner-bracket tr"></div>
+          <div class="corner-bracket br"></div>
+          <div class="corner-bracket bl"></div>
+          <span class="cam-guide-text">KARTI BURAYA HİZALAYIN</span>
         </div>
+      </div>
 
-        <!-- Interactive Canvas Stage -->
-        <div class="canvas-container" id="canvasWrapper">
-          <canvas id="cadCanvas"></canvas>
-          <video id="webcamVideo" playsinline autoplay muted style="display:none;"></video>
+      <!-- Sub-pixel Magnifier Loupe -->
+      <div class="magnifier-lens" id="magnifierLens" style="display:none;">
+        <canvas id="lensCanvas" width="130" height="130"></canvas>
+        <div class="lens-crosshair"></div>
+        <span class="lens-label">2.5X</span>
+      </div>
 
-          <!-- Live Camera HUD Overlay -->
-          <div class="camera-hud" id="cameraHud" style="display:none;">
-            <div class="cam-topbar">
-              <span class="badge-live-pulse"><span class="pulse-dot"></span> LIVE CAMERA</span>
-              <div class="cam-actions">
-                <button class="btn-hud" id="btnFlipCam" title="Flip Camera (Front/Back)">🔄 Flip Cam</button>
-                <button class="btn-hud btn-danger" id="btnCloseCam" title="Close Camera">✕ Stop</button>
-              </div>
-            </div>
-            
-            <div class="viewfinder-box">
-              <div class="corner-mark tl"></div>
-              <div class="corner-mark tr"></div>
-              <div class="corner-mark br"></div>
-              <div class="corner-mark bl"></div>
-              <span class="viewfinder-tag">ALIGN CARD / COIN HERE</span>
-            </div>
+      <!-- Floating Status Pill -->
+      <div class="status-banner" id="statusBanner">
+        <span id="statusText">📸 Kamerayı açın veya masanızın fotoğrafını yükleyin</span>
+      </div>
 
-            <div class="cam-bottombar">
-              <button class="btn-shutter" id="btnShutter" title="Take Snap & Measure">
-                <div class="shutter-inner"></div>
-              </button>
-              <p class="shutter-hint">Click / Tap to Snap & Measure</p>
-            </div>
-          </div>
+      <!-- Live Shutter Bar (visible when camera stream is on) -->
+      <div class="shutter-bar" id="shutterBar" style="display:none;">
+        <button class="btn-shutter" id="btnShutter" title="Kareyi Dondur ve Ölç">
+          <div class="shutter-circle"></div>
+        </button>
+        <span class="shutter-label">Kareyi Yakala & Ölç</span>
+      </div>
 
-          <!-- Sub-pixel Magnifier Loupe -->
-          <div class="magnifier-lens" id="magnifierLens" style="display:none;">
-            <canvas id="lensCanvas" width="130" height="130"></canvas>
-            <div class="lens-crosshair"></div>
-            <span class="lens-label">2.5X SUB-PIXEL</span>
-          </div>
-
-          <!-- Pin Alignment Banner -->
-          <div class="pin-banner" id="pinBanner" style="display:none;">
-            <span>📍 Drag the 4 corner pins to match your card edges:</span>
-            <div class="pin-btns">
-              <button class="btn btn-sm btn-primary" id="btnApplyPins">✓ Re-Calibrate</button>
-              <button class="btn btn-sm btn-secondary" id="btnResetPins">↺ Reset</button>
-            </div>
-          </div>
-
-          <!-- Empty State Dropzone -->
-          <div class="empty-state" id="dropzone">
-            <div class="empty-icon">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                <rect x="2" y="2" width="20" height="20" rx="4"></rect>
-                <circle cx="12" cy="12" r="6"></circle>
-                <line x1="12" y1="2" x2="12" y2="8"></line>
-                <line x1="12" y1="16" x2="12" y2="22"></line>
-                <line x1="2" y1="12" x2="8" y2="12"></line>
-                <line x1="16" y1="12" x2="22" y2="12"></line>
-              </svg>
-            </div>
-            <h2>Live Camera or Upload Photo</h2>
-            <p>Place a standard <strong>Credit Card</strong> or <strong>Coin</strong> on your desk next to the parts you want to measure.</p>
-            <div class="empty-buttons">
-              <button class="btn btn-primary" id="btnEmptyStartCam">🎥 Open Live Camera</button>
-              <button class="btn btn-secondary" id="btnEmptyUpload">📁 Upload Photo</button>
-            </div>
-          </div>
-
-          <!-- Live Caliper Floating Badge -->
-          <div class="caliper-hud" id="caliperHud" style="display:none;">
-            <div class="hud-title">DIGITAL CALIPER READOUT</div>
-            <div class="hud-value"><span id="hudValue">0.00</span> <span class="unit">mm</span></div>
-            <div class="hud-sub" id="hudSub">ΔX: 0.0 mm | ΔY: 0.0 mm | 0.0°</div>
-          </div>
-
-          <!-- Loading Spinner Overlay -->
-          <div class="loading-overlay" id="loadingOverlay" style="display:none;">
-            <div class="spinner"></div>
-            <div class="loading-text" id="loadingText">Processing image with sub-pixel CV...</div>
-          </div>
+      <!-- Empty State Card -->
+      <div class="empty-state" id="dropzone">
+        <div class="empty-glow-icon">
+          <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+            <circle cx="12" cy="13" r="4"/>
+          </svg>
         </div>
-
-        <!-- Viewport Footer Status -->
-        <div class="viewport-footer">
-          <div class="footer-stat" id="statScale">Scale: <strong>-- px/mm</strong></div>
-          <div class="footer-stat" id="statResolution">Resolution: <strong>-- µm/px</strong></div>
-          <div class="footer-stat" id="statConfidence">Ref Confidence: <strong>--%</strong></div>
-          <div class="footer-stat" id="statMode">Mode: <strong id="currentModeLabel">Auto Metrology</strong></div>
-        </div>
-      </section>
-
-      <!-- Right Metrology Control & Inspector Sidebar -->
-      <aside class="sidebar-card">
-        <!-- Configuration Section -->
-        <div class="sidebar-section">
-          <div class="section-header">
-            <h3>Calibration Standard</h3>
-            <span class="status-dot green"></span>
-          </div>
-          <div class="form-group">
-            <label for="selectReference">Physical Reference</label>
-            <select id="selectReference" class="form-control">
-              <option value="iso_card" selected>Credit Card (85.60 x 53.98 mm)</option>
-              <option value="coin_1_tl">1 Turkish Lira (Ø 26.15 mm)</option>
-              <option value="coin_1_euro">1 Euro Coin (Ø 23.25 mm)</option>
-              <option value="coin_us_quarter">US Quarter 25¢ (Ø 24.26 mm)</option>
-              <option value="aruco_4x4_50mm">ArUco Marker 4x4 (50 x 50 mm)</option>
-              <option value="custom_rect">Custom Rectangle (W x H mm)</option>
-            </select>
-          </div>
-
-          <div class="custom-dims-row" id="customDimsRow" style="display:none;">
-            <div class="form-group half">
-              <label>Width (mm)</label>
-              <input type="number" id="customWidth" class="form-control" value="50.0" step="0.1">
-            </div>
-            <div class="form-group half">
-              <label>Height (mm)</label>
-              <input type="number" id="customHeight" class="form-control" value="50.0" step="0.1">
-            </div>
-          </div>
-        </div>
-
-        <!-- Quality Control / Tolerance Inspector -->
-        <div class="sidebar-section">
-          <div class="section-header">
-            <h3>QA Tolerance Check (Pass/Fail)</h3>
-            <span class="badge-pill" id="qaBadge">DISABLED</span>
-          </div>
-          <div class="tolerance-inputs">
-            <div class="form-group half">
-              <label>Nominal L (mm)</label>
-              <input type="number" id="nomLength" class="form-control" placeholder="e.g. 60.0" step="0.1">
-            </div>
-            <div class="form-group half">
-              <label>Tolerance ±</label>
-              <input type="number" id="tolLength" class="form-control" placeholder="0.5" value="0.5" step="0.05">
-            </div>
-          </div>
-          <div class="tolerance-inputs">
-            <div class="form-group half">
-              <label>Nominal W (mm)</label>
-              <input type="number" id="nomWidth" class="form-control" placeholder="e.g. 25.0" step="0.1">
-            </div>
-            <div class="form-group half">
-              <label>Tolerance ±</label>
-              <input type="number" id="tolWidth" class="form-control" placeholder="0.5" value="0.5" step="0.05">
-            </div>
-          </div>
-          <button class="btn btn-sm btn-secondary w-100" id="btnReanalyze" style="margin-top:8px;">Re-run Inspection</button>
-        </div>
-
-        <!-- Inspection Results List -->
-        <div class="sidebar-section flex-1">
-          <div class="section-header">
-            <h3>Inspected Objects (<span id="objCount">0</span>)</h3>
-            <button class="btn-link" id="btnExportJson" title="Export JSON Report">JSON</button>
-          </div>
-          <div class="results-list" id="resultsList">
-            <div class="empty-hint">Analyze an image to view calibrated dimensions.</div>
-          </div>
-        </div>
-
-        <!-- Export Buttons -->
-        <div class="sidebar-footer">
-          <button class="btn btn-primary w-100" id="btnDownloadCad">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-            Export CAD Drawing
+        <h2>Masadaki Eşyaları Ölçün</h2>
+        <p>Masaya bir <strong>Kredi Kartı</strong> veya <strong>1 TL</strong> koyun, yanındaki nesnelerin iki ucuna dokunarak milimetrik ölçün.</p>
+        <div class="empty-cta-group">
+          <button class="btn-pill-primary" id="btnEmptyStartCam">
+            🎥 Canlı Kamerayı Aç
+          </button>
+          <button class="btn-pill-secondary" id="btnEmptyUpload">
+            📁 Fotoğraf Yükle
           </button>
         </div>
-      </aside>
+      </div>
+
+      <!-- Corner Pin Adjustment Pill (when user is fine-tuning reference card) -->
+      <div class="pin-adjust-bar" id="pinAdjustBar" style="display:none;">
+        <span>📍 Kartın 4 köşesini parmağınla hizala:</span>
+        <button class="btn-action-sm primary" id="btnApplyPins">✓ Onayla</button>
+        <button class="btn-action-sm secondary" id="btnResetPins">↺ Sıfırla</button>
+        <button class="btn-action-sm danger" id="btnCancelPins">✕ Kapat</button>
+      </div>
+
+      <!-- Live Loading Spinner -->
+      <div class="loading-overlay" id="loadingOverlay" style="display:none;">
+        <div class="spinner-ring"></div>
+        <div class="loading-label" id="loadingText">İşleniyor...</div>
+      </div>
     </main>
+
+    <!-- Bottom Floating Apple Measure Toolbar -->
+    <nav class="bottom-toolbar">
+      <!-- Live Camera Toggle -->
+      <button class="tool-btn" id="btnToggleCamera" title="Kamera">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/>
+          <circle cx="12" cy="13" r="4"/>
+        </svg>
+        <span id="btnCamText">Kamera</span>
+      </button>
+
+      <!-- Upload Photo -->
+      <button class="tool-btn" id="btnUploadTrigger" title="Fotoğraf Yükle">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <span>Yükle</span>
+      </button>
+      <input type="file" id="fileInputUpload" accept="image/*" style="display:none;">
+
+      <!-- Measure Mode (Active by default) -->
+      <button class="tool-btn active" id="btnMeasureMode" title="İki Nokta Arası Ölç">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="6" cy="6" r="3"/>
+          <circle cx="18" cy="18" r="3"/>
+          <line x1="8" y1="8" x2="16" y2="16" stroke-dasharray="2 2"/>
+        </svg>
+        <span>Ölçüm</span>
+      </button>
+
+      <!-- Pin Alignment (Adjust Card) -->
+      <button class="tool-btn" id="btnPinMode" title="Kart Köşelerini Düzelt">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+          <circle cx="7" cy="7" r="1.5" fill="currentColor"/>
+          <circle cx="17" cy="7" r="1.5" fill="currentColor"/>
+          <circle cx="17" cy="17" r="1.5" fill="currentColor"/>
+          <circle cx="7" cy="17" r="1.5" fill="currentColor"/>
+        </svg>
+        <span>Kartı Hizala</span>
+      </button>
+
+      <!-- Clear Measurements -->
+      <button class="tool-btn danger" id="btnClearMeasurements" title="Ölçümleri Temizle">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+        </svg>
+        <span>Temizle</span>
+      </button>
+    </nav>
   </div>
 
   <script src="js/app.js"></script>
