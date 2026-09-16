@@ -5,6 +5,7 @@ Endpoints for image analysis, metric distance measurement, manual calibration,
 and preset reference configurations.
 """
 
+import io
 import os
 import base64
 import json
@@ -15,6 +16,7 @@ from fastapi.responses import JSONResponse, FileResponse
 from pydantic import BaseModel, Field
 import cv2
 import numpy as np
+from PIL import Image, ImageOps
 
 from smart_caliper.config import ReferenceType, REFERENCE_REGISTRY
 from smart_caliper.pipeline import CaliperPipeline
@@ -142,10 +144,25 @@ async def analyze_image(
     5. Generates CAD blueprint visualization
     """
     # Read image
+    # Read image with EXIF orientation correction and smart scaling
     if file is not None:
         contents = await file.read()
-        nparr = np.frombuffer(contents, np.uint8)
-        img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+        try:
+            pil_img = Image.open(io.BytesIO(contents))
+            pil_img = ImageOps.exif_transpose(pil_img)
+            if pil_img.mode != "RGB":
+                pil_img = pil_img.convert("RGB")
+            # Downscale if image is gigantic (> 1920px) to prevent OOM and maintain 60 FPS CV processing
+            max_dim = 1920
+            if max(pil_img.size) > max_dim:
+                ratio = max_dim / max(pil_img.size)
+                new_size = (int(pil_img.width * ratio), int(pil_img.height * ratio))
+                pil_img = pil_img.resize(new_size, Image.Resampling.LANCZOS)
+            rgb_arr = np.array(pil_img)
+            img = cv2.cvtColor(rgb_arr, cv2.COLOR_RGB2BGR)
+        except Exception:
+            nparr = np.frombuffer(contents, np.uint8)
+            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     elif sample_name:
         sample_path = SAMPLES_DIR / sample_name
         if not sample_path.exists():
@@ -198,6 +215,9 @@ async def analyze_image(
         raise HTTPException(status_code=500, detail=f"Inspection failed: {str(e)}")
         
     # Encode images to Base64 PNG for instant web display
+    _, buffer_orig = cv2.imencode(".png", img)
+    b64_orig = base64.b64encode(buffer_orig).decode("utf-8")
+    
     _, buffer_rect = cv2.imencode(".png", result.rectified_image)
     b64_rect = base64.b64encode(buffer_rect).decode("utf-8")
     
@@ -207,8 +227,13 @@ async def analyze_image(
     # Pack response
     response_data = result.to_dict()
     response_data["images"] = {
+        "original_png_b64": f"data:image/png;base64,{b64_orig}",
         "rectified_png_b64": f"data:image/png;base64,{b64_rect}",
         "cad_annotated_png_b64": f"data:image/png;base64,{b64_cad}",
+    }
+    response_data["original_dimensions"] = {
+        "width": int(img.shape[1]),
+        "height": int(img.shape[0]),
     }
     response_data["reference_detected_corners_original"] = [
         {"x": round(float(pt[0]), 1), "y": round(float(pt[1]), 1)}

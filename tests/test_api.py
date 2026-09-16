@@ -49,6 +49,7 @@ def test_api_analyze_sample():
     assert "images" in data
     assert "rectified_png_b64" in data["images"]
     assert "cad_annotated_png_b64" in data["images"]
+    assert "original_png_b64" in data["images"]
     assert data["objects_count"] >= 1
 
 
@@ -87,3 +88,29 @@ def test_web_static_index():
     assert response.status_code == 200
     assert "SmartCaliper" in response.text
     assert "cadCanvas" in response.text
+    assert "webcamVideo" in response.text
+
+
+def test_api_analyze_file_upload():
+    import io
+    from PIL import Image
+
+    # Create a synthetic test image with a card rectangle
+    img = Image.new("RGB", (640, 480), color=(240, 240, 240))
+    buf = io.BytesIO()
+    img.save(buf, format="JPEG")
+    buf.seek(0)
+
+    response = client.post(
+        "/api/analyze",
+        files={"file": ("test_capture.jpg", buf, "image/jpeg")},
+        data={"ref_type": "iso_card"}
+    )
+    assert response.status_code == 200
+    data = response.json()
+    assert "images" in data
+    assert "original_png_b64" in data["images"]
+    assert "rectified_png_b64" in data["images"]
+    assert "cad_annotated_png_b64" in data["images"]
+    assert "reference_detected_corners_original" in data
+    assert len(data["reference_detected_corners_original"]) == 4

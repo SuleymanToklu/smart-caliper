@@ -35,6 +35,10 @@
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/></svg>
             Auto Metrology
           </button>
+          <button class="pill-btn" data-mode="pin" title="Drag 4 corners of reference card with magnifier">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            Pin Alignment
+          </button>
           <button class="pill-btn" data-mode="caliper" title="Point-to-point Digital Caliper">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12h20M2 12l5-5M2 12l5 5M22 12l-5-5M22 12l-5 5"/></svg>
             Digital Caliper
@@ -46,11 +50,14 @@
         </div>
 
         <div class="header-right">
-          <label class="btn btn-primary btn-camera" for="fileInputCamera">
+          <button class="btn btn-primary btn-camera" id="btnToggleCamera">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>
-            <span>Snap / Upload</span>
-          </label>
-          <input type="file" id="fileInputCamera" accept="image/*" capture="environment" style="display:none;">
+            <span id="btnCamText">Live Camera</span>
+          </button>
+          <button class="btn btn-secondary" id="btnUploadTrigger">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span>Upload Photo</span>
+          </button>
           <input type="file" id="fileInputUpload" accept="image/*" style="display:none;">
         </div>
       </div>
@@ -73,13 +80,56 @@
             <button class="btn-icon" id="btnZoomIn" title="Zoom In">+</button>
             <button class="btn-icon" id="btnZoomOut" title="Zoom Out">-</button>
             <button class="btn-icon" id="btnZoomFit" title="Fit to Screen">⛶</button>
-            <button class="btn-toggle active" id="btnToggleCad" title="Toggle CAD Overlay">CAD Overlay</button>
+            <button class="btn-toggle active" id="btnToggleCad" title="Toggle CAD Overlay">CAD Blueprint</button>
           </div>
         </div>
 
         <!-- Interactive Canvas Stage -->
         <div class="canvas-container" id="canvasWrapper">
           <canvas id="cadCanvas"></canvas>
+          <video id="webcamVideo" playsinline autoplay muted style="display:none;"></video>
+
+          <!-- Live Camera HUD Overlay -->
+          <div class="camera-hud" id="cameraHud" style="display:none;">
+            <div class="cam-topbar">
+              <span class="badge-live-pulse"><span class="pulse-dot"></span> LIVE CAMERA</span>
+              <div class="cam-actions">
+                <button class="btn-hud" id="btnFlipCam" title="Flip Camera (Front/Back)">🔄 Flip Cam</button>
+                <button class="btn-hud btn-danger" id="btnCloseCam" title="Close Camera">✕ Stop</button>
+              </div>
+            </div>
+            
+            <div class="viewfinder-box">
+              <div class="corner-mark tl"></div>
+              <div class="corner-mark tr"></div>
+              <div class="corner-mark br"></div>
+              <div class="corner-mark bl"></div>
+              <span class="viewfinder-tag">ALIGN CARD / COIN HERE</span>
+            </div>
+
+            <div class="cam-bottombar">
+              <button class="btn-shutter" id="btnShutter" title="Take Snap & Measure">
+                <div class="shutter-inner"></div>
+              </button>
+              <p class="shutter-hint">Click / Tap to Snap & Measure</p>
+            </div>
+          </div>
+
+          <!-- Sub-pixel Magnifier Loupe -->
+          <div class="magnifier-lens" id="magnifierLens" style="display:none;">
+            <canvas id="lensCanvas" width="130" height="130"></canvas>
+            <div class="lens-crosshair"></div>
+            <span class="lens-label">2.5X SUB-PIXEL</span>
+          </div>
+
+          <!-- Pin Alignment Banner -->
+          <div class="pin-banner" id="pinBanner" style="display:none;">
+            <span>📍 Drag the 4 corner pins to match your card edges:</span>
+            <div class="pin-btns">
+              <button class="btn btn-sm btn-primary" id="btnApplyPins">✓ Re-Calibrate</button>
+              <button class="btn btn-sm btn-secondary" id="btnResetPins">↺ Reset</button>
+            </div>
+          </div>
 
           <!-- Empty State Dropzone -->
           <div class="empty-state" id="dropzone">
@@ -93,11 +143,11 @@
                 <line x1="16" y1="12" x2="22" y2="12"></line>
               </svg>
             </div>
-            <h2>Take a photo or choose a sample</h2>
-            <p>Place an <strong>ISO Credit Card</strong> or <strong>Coin</strong> next to your parts on any desk.</p>
+            <h2>Live Camera or Upload Photo</h2>
+            <p>Place a standard <strong>Credit Card</strong> or <strong>Coin</strong> on your desk next to the parts you want to measure.</p>
             <div class="empty-buttons">
-              <button class="btn btn-primary" onclick="document.getElementById('fileInputCamera').click()">Open Camera</button>
-              <button class="btn btn-secondary" onclick="document.getElementById('fileInputUpload').click()">Upload Photo</button>
+              <button class="btn btn-primary" id="btnEmptyStartCam">🎥 Open Live Camera</button>
+              <button class="btn btn-secondary" id="btnEmptyUpload">📁 Upload Photo</button>
             </div>
           </div>
 
@@ -111,7 +161,7 @@
           <!-- Loading Spinner Overlay -->
           <div class="loading-overlay" id="loadingOverlay" style="display:none;">
             <div class="spinner"></div>
-            <div class="loading-text" id="loadingText">Rectifying perspective and measuring sub-pixel edges...</div>
+            <div class="loading-text" id="loadingText">Processing image with sub-pixel CV...</div>
           </div>
         </div>
 
