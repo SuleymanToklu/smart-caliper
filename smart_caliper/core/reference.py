@@ -94,7 +94,7 @@ class ReferenceDetector:
             corners=fallback_corners,
             width_mm=custom_width_mm or cfg.width_mm,
             height_mm=custom_height_mm or cfg.height_mm,
-            confidence=0.1,
+            confidence=0.0,
             is_auto_detected=False,
         )
 
@@ -142,10 +142,19 @@ class ReferenceDetector:
                     
                 peri = cv2.arcLength(cnt, True)
                 # Approximate polygon with progressive tolerance
-                for eps_factor in [0.02, 0.03, 0.04]:
+                for eps_factor in [0.02, 0.03, 0.04, 0.05]:
                     approx = cv2.approxPolyDP(cnt, eps_factor * peri, True)
+                    pts = None
                     if len(approx) == 4 and cv2.isContourConvex(approx):
                         pts = approx.reshape((4, 2)).astype(np.float32)
+                    elif 4 <= len(approx) <= 8:
+                        rect = cv2.minAreaRect(cnt)
+                        box = cv2.boxPoints(rect).astype(np.float32)
+                        box_area = rect[1][0] * rect[1][1]
+                        if box_area > 0 and (area / box_area) > 0.75:
+                            pts = box
+
+                    if pts is not None:
                         ordered = order_points(pts)
                         
                         # Calculate side lengths

@@ -33,6 +33,59 @@ class PipelineResult:
     
     def to_dict(self) -> Dict[str, Any]:
         """Serializes results for REST API response and JSON export."""
+        measurements_list = []
+        for m in self.measurements:
+            box_orig = []
+            if m.box_corners_px is not None and len(m.box_corners_px) == 4 and self.inverse_homography is not None:
+                try:
+                    pts_orig = transform_points(m.box_corners_px, self.inverse_homography)
+                    box_orig = [{"x": round(float(p[0]), 1), "y": round(float(p[1]), 1)} for p in pts_orig]
+                except Exception:
+                    box_orig = []
+
+            centroid_orig = None
+            if m.centroid_px is not None and self.inverse_homography is not None:
+                try:
+                    c_pts = transform_points(np.array([m.centroid_px]), self.inverse_homography)
+                    centroid_orig = {"x": round(float(c_pts[0][0]), 1), "y": round(float(c_pts[0][1]), 1)}
+                except Exception:
+                    centroid_orig = None
+
+            measurements_list.append({
+                "id": m.object_id,
+                "centroid_mm": {"x": m.centroid_mm[0], "y": m.centroid_mm[1]},
+                "centroid_original": centroid_orig,
+                "box_corners_original": box_orig,
+                "dimensions_mm": {
+                    "length": m.length_mm,
+                    "width": m.width_mm,
+                    "aspect_ratio": m.aspect_ratio,
+                    "orientation_deg": m.orientation_deg,
+                },
+                "area_mm2": m.area_mm2,
+                "perimeter_mm": m.perimeter_mm,
+                "equivalent_diameter_mm": m.equivalent_diameter_mm,
+                "circle_metrics": {
+                    "is_circular": m.is_circular,
+                    "diameter_mm": m.circle_diameter_mm,
+                    "center_mm": {"x": m.circle_center_mm[0], "y": m.circle_center_mm[1]} if m.circle_center_mm else None,
+                    "fit_rmse_mm": m.circle_fit_rmse_mm,
+                },
+                "caliper_feret_mm": {
+                    "max_span": m.max_feret_diameter_mm,
+                    "min_gap": m.min_feret_diameter_mm,
+                },
+                "form_factors": {
+                    "circularity": m.circularity,
+                    "solidity": m.solidity,
+                    "defect_score": m.defect_score,
+                },
+                "qa_inspection": {
+                    "passed": m.qa_passed,
+                    "message": m.qa_message,
+                } if m.qa_passed is not None else None,
+            })
+
         return {
             "calibration": {
                 "reference_type": self.reference.ref_type.value,
@@ -46,41 +99,7 @@ class PipelineResult:
                 "canvas_height_px": int(self.rectified_image.shape[0]),
             },
             "objects_count": len(self.measurements),
-            "measurements": [
-                {
-                    "id": m.object_id,
-                    "centroid_mm": {"x": m.centroid_mm[0], "y": m.centroid_mm[1]},
-                    "dimensions_mm": {
-                        "length": m.length_mm,
-                        "width": m.width_mm,
-                        "aspect_ratio": m.aspect_ratio,
-                        "orientation_deg": m.orientation_deg,
-                    },
-                    "area_mm2": m.area_mm2,
-                    "perimeter_mm": m.perimeter_mm,
-                    "equivalent_diameter_mm": m.equivalent_diameter_mm,
-                    "circle_metrics": {
-                        "is_circular": m.is_circular,
-                        "diameter_mm": m.circle_diameter_mm,
-                        "center_mm": {"x": m.circle_center_mm[0], "y": m.circle_center_mm[1]} if m.circle_center_mm else None,
-                        "fit_rmse_mm": m.circle_fit_rmse_mm,
-                    },
-                    "caliper_feret_mm": {
-                        "max_span": m.max_feret_diameter_mm,
-                        "min_gap": m.min_feret_diameter_mm,
-                    },
-                    "form_factors": {
-                        "circularity": m.circularity,
-                        "solidity": m.solidity,
-                        "defect_score": m.defect_score,
-                    },
-                    "qa_inspection": {
-                        "passed": m.qa_passed,
-                        "message": m.qa_message,
-                    } if m.qa_passed is not None else None,
-                }
-                for m in self.measurements
-            ]
+            "measurements": measurements_list
         }
 
 

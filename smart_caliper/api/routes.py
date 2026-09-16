@@ -235,7 +235,12 @@ async def analyze_image(
         "width": int(img.shape[1]),
         "height": int(img.shape[0]),
     }
-    if result.reference is not None and getattr(result.reference, "corners", None) is not None:
+    if (
+        result.reference is not None 
+        and getattr(result.reference, "corners", None) is not None 
+        and getattr(result.reference, "is_auto_detected", False)
+        and getattr(result.reference, "confidence", 0.0) > 0.3
+    ):
         response_data["reference_detected_corners_original"] = [
             {"x": round(float(pt[0]), 1), "y": round(float(pt[1]), 1)}
             for pt in result.reference.corners

@@ -92,18 +92,12 @@ def test_web_static_index():
 
 
 def test_api_analyze_file_upload():
-    import io
-    from PIL import Image
-
-    # Create a synthetic test image with a card rectangle
-    img = Image.new("RGB", (640, 480), color=(240, 240, 240))
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG")
-    buf.seek(0)
+    with open("samples/sample_card_inspection.png", "rb") as f:
+        file_bytes = f.read()
 
     response = client.post(
         "/api/analyze",
-        files={"file": ("test_capture.jpg", buf, "image/jpeg")},
+        files={"file": ("sample_card_inspection.png", file_bytes, "image/png")},
         data={"ref_type": "iso_card"}
     )
     assert response.status_code == 200

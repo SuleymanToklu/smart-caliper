@@ -39,6 +39,12 @@
     activePoint1: null, // current pending start point {x, y}
     cursorPoint: null,  // current cursor/touch position {x, y}
 
+    // Detected Objects for tracking and auto-selection
+    detectedObjects: [],
+    hoveredObject: null,
+    selectedObjectId: null,
+    snapPoint: null, // { x, y } when snapping to object/card corner
+
     // Canvas view transform
     zoom: 1.0,
     panX: 0,
@@ -390,8 +396,16 @@
     const refType = selectRef.value || 'iso_card';
     const spec = REFERENCE_SPECS[refType] || REFERENCE_SPECS.iso_card;
 
+    // Detected Objects (Keys, screws, brackets, objects on desk)
+    state.detectedObjects = (data.measurements || []).filter(
+      m => m.box_corners_original && m.box_corners_original.length === 4
+    );
+
     // Detected Reference Corners
-    if (data.reference_detected_corners_original && data.reference_detected_corners_original.length === 4) {
+    const conf = Math.round((data.calibration.confidence || 0) * 100);
+    const hasAutoDetectedCard = data.reference_detected_corners_original && data.reference_detected_corners_original.length === 4;
+
+    if (hasAutoDetectedCard) {
       state.detectedCorners = JSON.parse(JSON.stringify(data.reference_detected_corners_original));
       state.pinCorners = JSON.parse(JSON.stringify(data.reference_detected_corners_original));
     }
@@ -415,11 +429,11 @@
       fitToScreen();
       render();
 
-      const conf = Math.round((data.calibration.confidence || 0) * 100);
-      if (conf > 50) {
-        setStatus(`✓ Referans Kart Algılandı (%${conf} Doğruluk). Ölçmek istediğiniz 2 noktaya dokunun.`);
+      if (hasAutoDetectedCard && conf > 30) {
+        setStatus(`✓ ${spec.label} Algılandı (%${conf} Doğruluk). Ölçmek istediğiniz nesneye dokunun.`);
       } else {
-        setStatus(`📍 Referans otomatik bulunamadı. "Kartı Hizala" butonuna basarak 4 köşeyi kartın üzerine çekebilirsiniz.`);
+        setMode('pin');
+        setStatus(`⚠️ Kart otomatik bulunamadı. Lütfen "Kartı Hizala" butonundaki 4 mavi köşeyi kartınızın köşelerine sürükleyin.`);
       }
     };
   }
@@ -451,18 +465,26 @@
     // 1. Draw Clean Natural Image
     ctx.drawImage(state.image, 0, 0);
 
-    // 2. Draw Reference Target Outline (Card / Coin)
+    // 2. Draw Detected Objects (Tracking & Selection Outlines)
+    renderDetectedObjects();
+
+    // 3. Draw Reference Target Outline (Card / Coin)
     renderReferenceOutline();
 
-    // 3. Draw Completed Measurements
+    // 4. Draw Completed Measurements
     state.measurements.forEach(m => {
       drawMeasureLine(m.p1, m.p2, m.distance_mm, false);
     });
 
-    // 4. Draw Active Rubberband Line (While dragging/placing 2nd point)
+    // 5. Draw Active Rubberband Line (While dragging/placing 2nd point)
     if (state.activePoint1 && state.cursorPoint && state.mode === 'measure') {
       const liveMm = calculatePhysicalDistanceMm(state.activePoint1, state.cursorPoint);
       drawMeasureLine(state.activePoint1, state.cursorPoint, liveMm, true);
+    }
+
+    // 6. Draw Magnetic Snap Indicator
+    if (state.snapPoint && state.mode === 'measure') {
+      drawSnapTarget(state.snapPoint.x, state.snapPoint.y);
     }
 
     ctx.restore();
@@ -687,10 +709,22 @@
         return;
       }
 
-      // Measuring rubberband preview
-      if (state.activePoint1 && state.mode === 'measure') {
-        state.cursorPoint = imgCoord;
-        updateMagnifier(screenX, screenY, imgCoord.x, imgCoord.y);
+      // Check object hover and corner snapping
+      if (state.mode === 'measure') {
+        const snap = findSnappingPoint(imgCoord.x, imgCoord.y);
+        state.snapPoint = snap;
+        const effectiveX = snap ? snap.x : imgCoord.x;
+        const effectiveY = snap ? snap.y : imgCoord.y;
+
+        state.hoveredObject = state.detectedObjects.find(obj =>
+          obj.box_corners_original && isPointInPolygon({ x: imgCoord.x, y: imgCoord.y }, obj.box_corners_original)
+        ) || null;
+
+        // Measuring rubberband preview
+        if (state.activePoint1) {
+          state.cursorPoint = { x: effectiveX, y: effectiveY };
+          updateMagnifier(screenX, screenY, effectiveX, effectiveY);
+        }
         render();
       }
 
@@ -844,8 +878,39 @@
   }
 
   // --- Two-Point Measure Logic (Mezuram Core) ---
-  function handleCanvasTap(imgX, imgY) {
+  function handleCanvasTap(rawX, rawY) {
     if (state.mode !== 'measure') return;
+
+    // Apply magnetic snapping if near an object corner
+    const snap = findSnappingPoint(rawX, rawY);
+    const imgX = snap ? snap.x : rawX;
+    const imgY = snap ? snap.y : rawY;
+
+    // If no first point is active, check if user tapped directly inside a detected object (1-Tap Measure)
+    if (!state.activePoint1) {
+      const clickedObj = state.detectedObjects.find(obj =>
+        obj.box_corners_original && isPointInPolygon({ x: rawX, y: rawY }, obj.box_corners_original)
+      );
+
+      if (clickedObj) {
+        state.selectedObjectId = clickedObj.id;
+        const pts = clickedObj.box_corners_original;
+        // Add length measurement line
+        const p1 = { x: (pts[0].x + pts[3].x) / 2, y: (pts[0].y + pts[3].y) / 2 };
+        const p2 = { x: (pts[1].x + pts[2].x) / 2, y: (pts[1].y + pts[2].y) / 2 };
+        const distMm = calculatePhysicalDistanceMm(p1, p2);
+
+        state.measurements.push({
+          p1: p1,
+          p2: p2,
+          distance_mm: distMm,
+        });
+
+        setStatus(`✓ Nesne #${clickedObj.id} seçildi: ${clickedObj.dimensions_mm.length.toFixed(1)} mm × ${clickedObj.dimensions_mm.width.toFixed(1)} mm`);
+        render();
+        return;
+      }
+    }
 
     if (!state.activePoint1) {
       // First point placed!
@@ -867,6 +932,7 @@
 
       state.activePoint1 = null;
       state.cursorPoint = null;
+      state.snapPoint = null;
 
       const formatted = distMm >= 50 ? `${(distMm / 10).toFixed(2)} cm` : `${distMm.toFixed(1)} mm`;
       setStatus(`✓ Ölçüm: ${formatted} — Başka bir şey ölçmek için tekrar dokunun.`);
@@ -1001,6 +1067,137 @@
       render();
       setStatus('Son ölçüm geri alındı.');
     }
+  }
+
+  function isPointInPolygon(pt, poly) {
+    if (!poly || poly.length < 3) return false;
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i].x, yi = poly[i].y;
+      const xj = poly[j].x, yj = poly[j].y;
+      const intersect = ((yi > pt.y) !== (yj > pt.y))
+          && (pt.x < (xj - xi) * (pt.y - yi) / (yj - yi) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  }
+
+  function findSnappingPoint(imgX, imgY) {
+    const snapRadius = 24 / state.zoom;
+    let closest = null;
+    let minD = snapRadius;
+
+    // 1. Check detected object corners
+    if (state.detectedObjects) {
+      state.detectedObjects.forEach(obj => {
+        if (obj.box_corners_original) {
+          obj.box_corners_original.forEach(p => {
+            const d = Math.hypot(p.x - imgX, p.y - imgY);
+            if (d < minD) {
+              minD = d;
+              closest = { x: p.x, y: p.y };
+            }
+          });
+        }
+      });
+    }
+
+    // 2. Check reference card corners
+    if (state.pinCorners) {
+      state.pinCorners.forEach(p => {
+        const d = Math.hypot(p.x - imgX, p.y - imgY);
+        if (d < minD) {
+          minD = d;
+          closest = { x: p.x, y: p.y };
+        }
+      });
+    }
+
+    return closest;
+  }
+
+  function renderDetectedObjects() {
+    if (!state.detectedObjects || state.detectedObjects.length === 0) return;
+
+    state.detectedObjects.forEach(obj => {
+      const isHovered = state.hoveredObject && state.hoveredObject.id === obj.id;
+      const isSelected = state.selectedObjectId === obj.id;
+      const pts = obj.box_corners_original;
+      if (!pts || pts.length !== 4) return;
+
+      ctx.beginPath();
+      ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 1; i < pts.length; i++) {
+        ctx.lineTo(pts[i].x, pts[i].y);
+      }
+      ctx.closePath();
+
+      if (isSelected) {
+        ctx.strokeStyle = '#f59e0b';
+        ctx.lineWidth = 3 / state.zoom;
+        ctx.fillStyle = 'rgba(245, 158, 11, 0.2)';
+        ctx.fill();
+        ctx.stroke();
+      } else if (isHovered) {
+        ctx.strokeStyle = '#00f0ff';
+        ctx.lineWidth = 2.5 / state.zoom;
+        ctx.fillStyle = 'rgba(0, 240, 255, 0.15)';
+        ctx.fill();
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = 'rgba(0, 240, 255, 0.5)';
+        ctx.lineWidth = 1.5 / state.zoom;
+        ctx.setLineDash([4 / state.zoom, 4 / state.zoom]);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      }
+
+      // Draw dimension pill at object center
+      const cx = (pts[0].x + pts[1].x + pts[2].x + pts[3].x) / 4;
+      const cy = (pts[0].y + pts[1].y + pts[2].y + pts[3].y) / 4;
+      const dimText = `${obj.dimensions_mm.length.toFixed(1)} × ${obj.dimensions_mm.width.toFixed(1)} mm`;
+      drawObjectBadge(cx, cy, dimText, isSelected || isHovered);
+    });
+  }
+
+  function drawObjectBadge(x, y, text, isHighlighted) {
+    ctx.font = `bold ${12 / state.zoom}px Outfit, sans-serif`;
+    const metrics = ctx.measureText(text);
+    const padX = 8 / state.zoom;
+    const boxW = metrics.width + padX * 2;
+    const boxH = 20 / state.zoom;
+    const radius = 5 / state.zoom;
+    const bx = x - boxW / 2;
+    const by = y - boxH / 2;
+
+    ctx.beginPath();
+    ctx.roundRect(bx, by, boxW, boxH, radius);
+    ctx.fillStyle = isHighlighted ? 'rgba(15, 23, 42, 0.95)' : 'rgba(15, 23, 42, 0.8)';
+    ctx.fill();
+    ctx.strokeStyle = isHighlighted ? '#00f0ff' : 'rgba(255, 255, 255, 0.2)';
+    ctx.lineWidth = 1 / state.zoom;
+    ctx.stroke();
+
+    ctx.fillStyle = isHighlighted ? '#00f0ff' : '#cbd5e1';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, y);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  function drawSnapTarget(x, y) {
+    const r = 12 / state.zoom;
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.strokeStyle = '#10b981';
+    ctx.lineWidth = 2.5 / state.zoom;
+    ctx.stroke();
+
+    ctx.beginPath();
+    ctx.arc(x, y, 4 / state.zoom, 0, Math.PI * 2);
+    ctx.fillStyle = '#10b981';
+    ctx.fill();
   }
 
   // --- Coordinate & Zoom Math ---
