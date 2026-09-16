@@ -243,6 +243,11 @@ async def analyze_image(
     else:
         response_data["reference_detected_corners_original"] = []
     
+    if result.homography_matrix is not None:
+        response_data["homography_matrix"] = result.homography_matrix.tolist()
+    else:
+        response_data["homography_matrix"] = None
+        
     return JSONResponse(content=response_data)
 
 

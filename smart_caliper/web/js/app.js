@@ -5,6 +5,14 @@
 (function () {
   'use strict';
 
+  // --- Known Physical Dimensions ---
+  const REFERENCE_SPECS = {
+    iso_card: { width_mm: 85.60, height_mm: 53.98, label: 'Kredi Kartı' },
+    coin_1_tl: { width_mm: 26.15, height_mm: 26.15, label: '1 TL' },
+    coin_1_euro: { width_mm: 23.25, height_mm: 23.25, label: '1 Euro' },
+    aruco_4x4_50mm: { width_mm: 50.00, height_mm: 50.00, label: 'ArUco (50 mm)' },
+  };
+
   // --- State ---
   const state = {
     mode: 'measure', // 'measure', 'pin'
@@ -17,8 +25,9 @@
     imageWidth: 0,
     imageHeight: 0,
 
-    // Metric scale
-    ppm: 10.0, // pixels per mm
+    // Metric Homography Matrix: 3x3 Projective transform from image px to real mm
+    homographyMatrix: null,
+    ppm: 10.0, // fallback pixels per mm
 
     // Reference Corners (in image coordinates)
     pinCorners: null, // [ {x, y}, {x, y}, {x, y}, {x, y} ]
@@ -69,6 +78,7 @@
   // Toolbar
   const btnMeasureMode = document.getElementById('btnMeasureMode');
   const btnPinMode = document.getElementById('btnPinMode');
+  const btnUndoMeasurement = document.getElementById('btnUndoMeasurement');
   const btnClearMeasurements = document.getElementById('btnClearMeasurements');
 
   // Pin Adjustment Bar
@@ -138,6 +148,11 @@
       setMode('pin');
     });
 
+    // Undo measurement
+    if (btnUndoMeasurement) {
+      btnUndoMeasurement.addEventListener('click', undoLastMeasurement);
+    }
+
     // Clear measurements
     btnClearMeasurements.addEventListener('click', () => {
       state.measurements = [];
@@ -153,6 +168,8 @@
 
     // Reference Standard Change
     selectRef.addEventListener('change', () => {
+      updateHomographyMatrix();
+      render();
       if (state.currentSample) {
         loadSample(state.currentSample, selectRef.value, state.pinCorners);
       } else if (state.currentFile) {
@@ -370,12 +387,13 @@
     state.analysisData = data;
     state.ppm = data.calibration.pixels_per_mm || 10.0;
 
+    const refType = selectRef.value || 'iso_card';
+    const spec = REFERENCE_SPECS[refType] || REFERENCE_SPECS.iso_card;
+
     // Detected Reference Corners
-    if (data.reference_detected_corners_original) {
+    if (data.reference_detected_corners_original && data.reference_detected_corners_original.length === 4) {
       state.detectedCorners = JSON.parse(JSON.stringify(data.reference_detected_corners_original));
-      if (!state.pinCorners) {
-        state.pinCorners = JSON.parse(JSON.stringify(data.reference_detected_corners_original));
-      }
+      state.pinCorners = JSON.parse(JSON.stringify(data.reference_detected_corners_original));
     }
 
     // Load Image: prefer original_png_b64 for natural, non-warped viewing!
@@ -386,33 +404,36 @@
       state.imageWidth = img.width;
       state.imageHeight = img.height;
 
+      if (!state.pinCorners) {
+        state.pinCorners = getDefaultPinCorners(state.imageWidth, state.imageHeight, spec.width_mm, spec.height_mm);
+      }
+
+      updateHomographyMatrix();
+
       dropzone.style.display = 'none';
       canvas.style.display = 'block';
       fitToScreen();
       render();
 
-      const conf = Math.round(data.calibration.confidence * 100);
+      const conf = Math.round((data.calibration.confidence || 0) * 100);
       if (conf > 50) {
-        setStatus(`✓ Referans Algılandı (%${conf} Doğruluk). Ölçmek istediğiniz 2 noktaya dokunun.`);
+        setStatus(`✓ Referans Kart Algılandı (%${conf} Doğruluk). Ölçmek istediğiniz 2 noktaya dokunun.`);
       } else {
-        setStatus(`ℹ️ Referans otomatik bulunamadı. "Kartı Hizala" butonuna basarak 4 köşeyi ayarlayabilirsiniz.`);
+        setStatus(`📍 Referans otomatik bulunamadı. "Kartı Hizala" butonuna basarak 4 köşeyi kartın üzerine çekebilirsiniz.`);
       }
     };
   }
 
   function applyPinCalibration() {
-    if (!state.pinCorners || state.pinCorners.length !== 4) return;
-    if (state.currentSample) {
-      loadSample(state.currentSample, selectRef.value, state.pinCorners);
-    } else if (state.currentFile) {
-      uploadFile(state.currentFile, state.pinCorners);
-    }
+    updateHomographyMatrix();
     setMode('measure');
+    setStatus('✓ Kalibrasyon güncellendi! Artık hassas ölçüm yapabilirsiniz.');
   }
 
   function resetPinsToDetected() {
     if (state.detectedCorners) {
       state.pinCorners = JSON.parse(JSON.stringify(state.detectedCorners));
+      updateHomographyMatrix();
       render();
     }
   }
@@ -440,10 +461,7 @@
 
     // 4. Draw Active Rubberband Line (While dragging/placing 2nd point)
     if (state.activePoint1 && state.cursorPoint && state.mode === 'measure') {
-      const dx = state.cursorPoint.x - state.activePoint1.x;
-      const dy = state.cursorPoint.y - state.activePoint1.y;
-      const distPx = Math.hypot(dx, dy);
-      const liveMm = distPx / state.ppm;
+      const liveMm = calculatePhysicalDistanceMm(state.activePoint1, state.cursorPoint);
       drawMeasureLine(state.activePoint1, state.cursorPoint, liveMm, true);
     }
 
@@ -663,6 +681,7 @@
       // Pin Dragging
       if (state.activePinIndex !== -1 && state.pinCorners) {
         state.pinCorners[state.activePinIndex] = { x: imgCoord.x, y: imgCoord.y };
+        updateHomographyMatrix();
         updateMagnifier(screenX, screenY, imgCoord.x, imgCoord.y);
         render();
         return;
@@ -769,6 +788,7 @@
 
         if (state.activePinIndex !== -1 && state.pinCorners) {
           state.pinCorners[state.activePinIndex] = { x: imgCoord.x, y: imgCoord.y };
+          updateHomographyMatrix();
           updateMagnifier(screenX, screenY, imgCoord.x, imgCoord.y);
           render();
           return;
@@ -837,8 +857,7 @@
       // Second point placed! Complete the measurement!
       const p1 = state.activePoint1;
       const p2 = { x: imgX, y: imgY };
-      const distPx = Math.hypot(p2.x - p1.x, p2.y - p1.y);
-      const distMm = distPx / state.ppm;
+      const distMm = calculatePhysicalDistanceMm(p1, p2);
 
       state.measurements.push({
         p1: p1,
@@ -852,6 +871,135 @@
       const formatted = distMm >= 50 ? `${(distMm / 10).toFixed(2)} cm` : `${distMm.toFixed(1)} mm`;
       setStatus(`✓ Ölçüm: ${formatted} — Başka bir şey ölçmek için tekrar dokunun.`);
       render();
+    }
+  }
+
+  // --- Real-time Homography Math & Coordinate Transform ---
+  function computeHomography(src, targetWidthMm, targetHeightMm) {
+    if (!src || src.length !== 4) return null;
+    const dst = [
+      { x: 0, y: 0 },
+      { x: targetWidthMm, y: 0 },
+      { x: targetWidthMm, y: targetHeightMm },
+      { x: 0, y: targetHeightMm },
+    ];
+
+    const A = [];
+    const B = [];
+
+    for (let i = 0; i < 4; i++) {
+      const x = src[i].x;
+      const y = src[i].y;
+      const u = dst[i].x;
+      const v = dst[i].y;
+
+      A.push([x, y, 1, 0, 0, 0, -u * x, -u * y]);
+      B.push(u);
+
+      A.push([0, 0, 0, x, y, 1, -v * x, -v * y]);
+      B.push(v);
+    }
+
+    const n = 8;
+    for (let i = 0; i < n; i++) {
+      let maxRow = i;
+      for (let k = i + 1; k < n; k++) {
+        if (Math.abs(A[k][i]) > Math.abs(A[maxRow][i])) {
+          maxRow = k;
+        }
+      }
+      const tempA = A[i]; A[i] = A[maxRow]; A[maxRow] = tempA;
+      const tempB = B[i]; B[i] = B[maxRow]; B[maxRow] = tempB;
+
+      if (Math.abs(A[i][i]) < 1e-12) continue;
+
+      for (let k = i + 1; k < n; k++) {
+        const c = A[k][i] / A[i][i];
+        for (let j = i; j < n; j++) {
+          A[k][j] -= c * A[i][j];
+        }
+        B[k] -= c * B[i];
+      }
+    }
+
+    const h = new Array(8).fill(0);
+    for (let i = n - 1; i >= 0; i--) {
+      let sum = B[i];
+      for (let j = i + 1; j < n; j++) {
+        sum -= A[i][j] * h[j];
+      }
+      h[i] = sum / A[i][i];
+    }
+
+    return [
+      [h[0], h[1], h[2]],
+      [h[3], h[4], h[5]],
+      [h[6], h[7], 1.0],
+    ];
+  }
+
+  function projectPointToMm(pt, H) {
+    if (!H) return null;
+    const u = H[0][0] * pt.x + H[0][1] * pt.y + H[0][2];
+    const v = H[1][0] * pt.x + H[1][1] * pt.y + H[1][2];
+    const w = H[2][0] * pt.x + H[2][1] * pt.y + H[2][2];
+    if (Math.abs(w) < 1e-8) return null;
+    return { x: u / w, y: v / w };
+  }
+
+  function calculatePhysicalDistanceMm(p1, p2) {
+    if (state.homographyMatrix) {
+      const mm1 = projectPointToMm(p1, state.homographyMatrix);
+      const mm2 = projectPointToMm(p2, state.homographyMatrix);
+      if (mm1 && mm2) {
+        return Math.hypot(mm2.x - mm1.x, mm2.y - mm1.y);
+      }
+    }
+    const dx = p2.x - p1.x;
+    const dy = p2.y - p1.y;
+    return Math.hypot(dx, dy) / (state.ppm || 10.0);
+  }
+
+  function updateHomographyMatrix() {
+    if (!state.pinCorners || state.pinCorners.length !== 4) return;
+    const refType = selectRef.value || 'iso_card';
+    const spec = REFERENCE_SPECS[refType] || REFERENCE_SPECS.iso_card;
+    state.homographyMatrix = computeHomography(state.pinCorners, spec.width_mm, spec.height_mm);
+
+    // Live update all completed measurements with updated calibration
+    if (state.measurements && state.measurements.length > 0) {
+      state.measurements.forEach(m => {
+        m.distance_mm = calculatePhysicalDistanceMm(m.p1, m.p2);
+      });
+    }
+  }
+
+  function getDefaultPinCorners(imgW, imgH, refW, refH) {
+    const aspect = refW / refH;
+    const boxW = Math.min(imgW * 0.45, 450);
+    const boxH = boxW / aspect;
+    const cx = imgW / 2;
+    const cy = imgH / 2;
+    return [
+      { x: Math.round(cx - boxW / 2), y: Math.round(cy - boxH / 2) },
+      { x: Math.round(cx + boxW / 2), y: Math.round(cy - boxH / 2) },
+      { x: Math.round(cx + boxW / 2), y: Math.round(cy + boxH / 2) },
+      { x: Math.round(cx - boxW / 2), y: Math.round(cy + boxH / 2) },
+    ];
+  }
+
+  function undoLastMeasurement() {
+    if (state.activePoint1) {
+      state.activePoint1 = null;
+      state.cursorPoint = null;
+      render();
+      setStatus('Nokta seçimi iptal edildi.');
+      return;
+    }
+    if (state.measurements.length > 0) {
+      state.measurements.pop();
+      render();
+      setStatus('Son ölçüm geri alındı.');
     }
   }
 
