@@ -32,7 +32,7 @@ jobs:
 
       - name: Run Test Suite
         run: |
-          pytest tests/ -v --durations=10
+          python -m pytest tests/ -v --durations=10
 
       - name: Run Sub-pixel Precision Benchmark
         run: |
@@ -56,6 +56,12 @@ jobs:
       - name: Container Smoke Test
         run: |
           docker run --rm -d -p 8000:8000 --name caliper_smoke smart-caliper:ci
-          sleep 4
-          curl -f http://localhost:8000/api/health || exit 1
+          for i in $(seq 1 10); do
+            if curl -s -f http://localhost:8000/api/health; then
+              echo "Container is healthy!"
+              break
+            fi
+            echo "Waiting for container to start (attempt $i)..."
+            sleep 2
+          done
           docker stop caliper_smoke

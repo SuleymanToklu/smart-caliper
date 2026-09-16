@@ -3,7 +3,7 @@ Test suite for FastAPI REST endpoints and Web Application serving.
 """
 
 import pytest
-from starlette.testclient import TestClient
+from fastapi.testclient import TestClient
 from smart_caliper.api.app import app
 
 client = TestClient(app)
