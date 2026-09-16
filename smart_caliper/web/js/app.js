@@ -60,6 +60,7 @@
   const btnCamText = document.getElementById('btnCamText');
   const btnEmptyStartCam = document.getElementById('btnEmptyStartCam');
   const btnEmptyUpload = document.getElementById('btnEmptyUpload');
+  const btnEmptyDemo = document.getElementById('btnEmptyDemo');
 
   // Upload
   const btnUploadTrigger = document.getElementById('btnUploadTrigger');
@@ -92,11 +93,7 @@
   function init() {
     setupCanvas();
     setupEventListeners();
-
-    // Auto-load default sample after 300ms for instant demo
-    setTimeout(() => {
-      loadSample('sample_card_inspection.png', 'iso_card');
-    }, 300);
+    setStatus('Masadaki nesneyi ölçmek için kamerayı açın veya fotoğraf yükleyin.');
   }
 
   function setupCanvas() {
@@ -123,10 +120,11 @@
       }
     });
 
-    btnEmptyStartCam.addEventListener('click', startCamera);
-    btnEmptyUpload.addEventListener('click', () => fileUpload.click());
-    btnUploadTrigger.addEventListener('click', () => fileUpload.click());
-    fileUpload.addEventListener('change', e => handleFileSelect(e.target.files[0]));
+    if (btnEmptyStartCam) btnEmptyStartCam.addEventListener('click', startCamera);
+    if (btnEmptyUpload) btnEmptyUpload.addEventListener('click', () => fileUpload.click());
+    if (btnEmptyDemo) btnEmptyDemo.addEventListener('click', () => loadSample('sample_card_inspection.png', 'iso_card'));
+    if (btnUploadTrigger) btnUploadTrigger.addEventListener('click', () => fileUpload.click());
+    if (fileUpload) fileUpload.addEventListener('change', e => handleFileSelect(e.target.files[0]));
 
     btnShutter.addEventListener('click', snapCameraFrame);
 
@@ -171,6 +169,8 @@
         selectRef.value = ref;
         loadSample(sample, ref);
       });
+    });
+
     // Drag & Drop
     ['dragenter', 'dragover'].forEach(name => {
       window.addEventListener(name, e => {
@@ -245,6 +245,10 @@
         audio: false,
       };
 
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error('Kamera API bulunamadı. Lütfen sayfayı HTTPS (güvenli bağlantı) üzerinden açtığınızdan emin olun.');
+      }
+
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       state.cameraStream = stream;
       webcamVideo.srcObject = stream;
@@ -261,7 +265,7 @@
       setStatus('📷 Kartı çerçeveye hizalayın ve Yakala butonuna basın.');
     } catch (err) {
       console.error('Camera error:', err);
-      alert('Kamera açılamadı: ' + err.message + '\nLütfen tarayıcıda kamera izni verdiğinizden emin olun.');
+      setStatus('⚠️ Kamera açılamadı: ' + err.message);
     } finally {
       hideLoading();
     }
@@ -324,7 +328,7 @@
       processApiResponse(data);
     } catch (err) {
       console.error(err);
-      alert('Yükleme başarısız: ' + err.message);
+      setStatus('⚠️ Yükleme başarısız: ' + err.message);
     } finally {
       hideLoading();
     }
@@ -350,7 +354,7 @@
       processApiResponse(data);
     } catch (err) {
       console.error(err);
-      alert('Analiz hatası: ' + err.message);
+      setStatus('⚠️ Analiz hatası: ' + err.message);
     } finally {
       hideLoading();
     }
